@@ -1,0 +1,106 @@
+{
+  "name": "Business",
+  "type": "object",
+  "properties": {
+    "business_name": {
+      "type": "string",
+      "description": "Legal business name"
+    },
+    "trading_name": {
+      "type": "string",
+      "description": "Trading name shown to users"
+    },
+    "contact_name": {
+      "type": "string",
+      "description": "Primary contact full name"
+    },
+    "contact_email": {
+      "type": "string",
+      "description": "Primary contact email"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Business phone number"
+    },
+    "address": {
+      "type": "string",
+      "description": "Business address"
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional description of the business",
+      "maxLength": 1000
+    },
+    "subscription_status": {
+      "type": "string",
+      "enum": [
+        "trial",
+        "active",
+        "paused",
+        "cancelled"
+      ],
+      "default": "trial",
+      "description": "Current subscription status"
+    },
+    "trial_start_date": {
+      "type": "string",
+      "format": "date",
+      "description": "When the trial started"
+    },
+    "trial_end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "When the trial expires"
+    },
+    "stripe_customer_id": {
+      "type": "string",
+      "description": "Stripe customer ID"
+    },
+    "stripe_subscription_id": {
+      "type": "string",
+      "description": "Stripe subscription ID"
+    },
+    "default_labour_rate": {
+      "type": "number",
+      "description": "Default hourly labour rate ex GST in dollars"
+    },
+    "logo_url": {
+      "type": "string",
+      "description": "URL of business logo"
+    },
+    "sms_sign_off": {
+      "type": "string",
+      "description": "Custom SMS sign-off text e.g. 'Fleurieu Motor Group Service 08 8552 1255'"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the business account is active"
+    },
+    "deactivated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the business was deactivated"
+    },
+    "deactivated_by": {
+      "type": "string",
+      "description": "Email of super admin who deactivated"
+    },
+    "onboarding_completed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether onboarding wizard has been completed"
+    },
+    "job_card_prefix": {
+      "type": "string",
+      "description": "Prefix for job card numbers e.g. 'JC-', 'WO-'"
+    },
+    "job_card_format_hint": {
+      "type": "string",
+      "description": "Format hint shown to staff when entering job card numbers e.g. 'JC-0001'"
+    }
+  },
+  "required": [
+    "business_name"
+  ]
+}

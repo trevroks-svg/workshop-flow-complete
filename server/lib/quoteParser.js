@@ -1,0 +1,129 @@
+const HIGH_CONFIDENCE = 0.85;
+const MONEY_TOLERANCE = 0.03;
+
+function toNumber(value) {
+  if (value == null) return null;
+  const parsed = Number(String(value).replace(/[$,]/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function roundCurrency(value) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function normaliseText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function extractTableBody(text) {
+  const headerMatch = text.match(/Description\s+Part\s+Number\s+Qty\s+Unit\s+Price\s+\(ex\s+GST\)\s+GST\s+Total\s+\(inc\s+GST\)/i);
+  const start = headerMatch ? headerMatch.index + headerMatch[0].length : 0;
+  const afterHeader = text.slice(start).trim();
+  const footerMatch = afterHeader.match(/\s+(Subtotal\s+\(ex\s+GST\)|GST\s+\(\d+%?\)|TOTAL\s+\(inc\s+GST\))/i);
+  return footerMatch ? afterHeader.slice(0, footerMatch.index).trim() : afterHeader;
+}
+
+function extractQuoteTotal(text) {
+  const matches = [...text.matchAll(/TOTAL\s+\(inc\s+GST\)\s*:?\s*\$?([\d,]+\.\d{2})/gi)];
+  if (!matches.length) return null;
+  return toNumber(matches[matches.length - 1][1]);
+}
+
+function parseLineItems(text) {
+  const body = extractTableBody(text);
+  const rowPattern = /([A-Za-z][A-Za-z0-9 /&().,+-]*?)\s+([A-Z0-9][A-Z0-9-]{2,})\s+(\d+(?:\.\d+)?)\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})/g;
+  const rows = [];
+
+  for (const match of body.matchAll(rowPattern)) {
+    const quantity = toNumber(match[3]);
+    const unitPriceExGst = toNumber(match[4]);
+    const gst = toNumber(match[5]);
+    const lineTotalIncGst = toNumber(match[6]);
+    const expectedTotal = roundCurrency((unitPriceExGst || 0) * (quantity || 0) + (gst || 0));
+    const mathsValid = Math.abs(expectedTotal - lineTotalIncGst) <= MONEY_TOLERANCE;
+
+    rows.push({
+      description: match[1].trim(),
+      part_number: match[2].trim(),
+      quantity,
+      unit_price_ex_gst: unitPriceExGst,
+      gst,
+      line_total_inc_gst: lineTotalIncGst,
+      mathsValid,
+    });
+  }
+
+  return rows;
+}
+
+function buildGroups(lineItems) {
+  return lineItems.map(item => ({
+    repair_name: item.description,
+    parts: [`${item.description} ${item.part_number} x${item.quantity}`],
+    parts_cost_ex_gst: roundCurrency(item.unit_price_ex_gst * item.quantity),
+    estimated_labour_hours: 0.5,
+  }));
+}
+
+export function parseQuoteText(quotePdfText) {
+  const text = normaliseText(quotePdfText);
+  if (!text) {
+    return {
+      success: false,
+      confidence: 0,
+      reason: 'No quote text supplied',
+    };
+  }
+
+  const hasTableHeader = /Description\s+Part\s+Number\s+Qty\s+Unit\s+Price\s+\(ex\s+GST\)\s+GST\s+Total\s+\(inc\s+GST\)/i.test(text);
+  const rawLineItems = parseLineItems(text);
+  const validLineItems = rawLineItems.filter(item =>
+    item.description &&
+    item.part_number &&
+    item.quantity > 0 &&
+    item.unit_price_ex_gst > 0 &&
+    item.gst > 0 &&
+    item.line_total_inc_gst > 0 &&
+    item.mathsValid
+  );
+
+  if (!hasTableHeader || !validLineItems.length || validLineItems.length !== rawLineItems.length) {
+    return {
+      success: false,
+      confidence: 0.35,
+      reason: 'No complete high-confidence quote table rows found',
+      line_items: rawLineItems,
+    };
+  }
+
+  const quoteTotalIncGst = extractQuoteTotal(text);
+  const lineTotalSum = roundCurrency(validLineItems.reduce((sum, item) => sum + item.line_total_inc_gst, 0));
+  const quoteTotalMatches = quoteTotalIncGst == null || Math.abs(lineTotalSum - quoteTotalIncGst) <= MONEY_TOLERANCE;
+
+  if (!quoteTotalMatches) {
+    return {
+      success: false,
+      confidence: 0.6,
+      reason: 'Line totals do not match quote total',
+      line_items: validLineItems,
+      quote_total_inc_gst: quoteTotalIncGst,
+    };
+  }
+
+  const lineItems = validLineItems.map(({ mathsValid, ...item }) => item);
+  const confidence = quoteTotalIncGst == null ? 0.9 : 0.97;
+
+  return {
+    success: confidence >= HIGH_CONFIDENCE,
+    confidence,
+    result: {
+      pdf_was_readable: true,
+      notes_used_for_pricing: false,
+      quote_total_inc_gst: quoteTotalIncGst ?? lineTotalSum,
+      line_items: lineItems,
+      groups: buildGroups(lineItems),
+    },
+  };
+}
+
+export const QUOTE_PARSER_HIGH_CONFIDENCE = HIGH_CONFIDENCE;
