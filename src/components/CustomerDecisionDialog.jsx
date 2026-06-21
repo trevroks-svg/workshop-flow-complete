@@ -68,7 +68,7 @@ export default function CustomerDecisionDialog({
         business_id: request.business_id,
         recipient_email: request.workshop_controller_email,
         recipient_role: 'workshop_controller',
-        type: decision === 'approved' ? 'customer_approved' : 'customer_decision_recorded',
+        type: decision === 'approved' ? 'customer_approved' : 'customer_denied',
         title: `Customer ${decision === 'approved' ? 'Approved' : 'Denied'} Quote`,
         message: `Customer has ${decision} the quote for job card ${request.job_card_number}. Method: ${method}`,
         request_id: request.id,

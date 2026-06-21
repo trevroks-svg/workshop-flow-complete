@@ -3,11 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { TEST_USERS, TEST_PASSWORD, makeJobCard } from './helpers/auth.js';
+import analyseRepairs from '../../server/routes/analyseRepairs.js';
 
 const users = Object.fromEntries(TEST_USERS.map(user => [user.role, user]));
 const screenshotsRoot = path.resolve('tests', 'screenshots', 'workflow-audit');
 const reportPath = path.resolve('workflow-audit-report.md');
 const quoteFixture = path.resolve('tests', 'fixtures', 'test-audit-quote.pdf');
+const airFilterQuoteFixture = path.resolve('tests', 'fixtures', 'test-audit-air-filter-quote.pdf');
 
 function slug(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'step';
@@ -120,6 +122,24 @@ async function findInspection(supabase, jobCard, customerName) {
   return data?.[0] || null;
 }
 
+function callAnalyseRepairsRoute(body) {
+  return new Promise(resolve => {
+    const req = { body };
+    const res = {
+      statusCode: 200,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(data) {
+        resolve({ status: this.statusCode, data });
+      },
+    };
+
+    analyseRepairs(req, res);
+  });
+}
+
 async function safeDeleteById(supabase, table, id, markerPredicate) {
   const { data, error: readError } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
   if (readError) return { table, id, cleaned: false, error: readError.message };
@@ -132,12 +152,14 @@ async function safeDeleteById(supabase, table, id, markerPredicate) {
 
 async function cleanupAuditData(supabase, state) {
   const results = [];
+  const targets = [state, ...(state.extraCleanupTargets || [])];
 
-  if (state.partsRequestId) {
+  for (const target of targets) {
+    if (!target.partsRequestId) continue;
     const { data: notifications, error } = await supabase
       .from('notifications')
       .select('*')
-      .eq('request_id', state.partsRequestId);
+      .eq('request_id', target.partsRequestId);
     if (error) {
       results.push({ table: 'notifications', cleaned: false, error: error.message });
     } else {
@@ -146,34 +168,39 @@ async function cleanupAuditData(supabase, state) {
           supabase,
           'notifications',
           notification.id,
-          row => row.request_id === state.partsRequestId || row.job_card_number === state.partsJobCard
+          row => row.request_id === target.partsRequestId || row.job_card_number === target.partsJobCard
         ));
       }
     }
   }
 
-  if (state.inspectionId) {
-    results.push(await safeDeleteById(
-      supabase,
-      'vehicle_inspections',
-      state.inspectionId,
-      row => String(row.customer_name || '').startsWith(state.tag) || String(row.technician_notes || '').startsWith(state.tag)
-    ));
+  for (const target of targets) {
+    if (target.inspectionId) {
+      results.push(await safeDeleteById(
+        supabase,
+        'vehicle_inspections',
+        target.inspectionId,
+        row => String(row.customer_name || '').startsWith(target.tag) || String(row.technician_notes || '').startsWith(target.tag)
+      ));
+    }
   }
 
-  if (state.partsRequestId) {
-    results.push(await safeDeleteById(
-      supabase,
-      'parts_requests',
-      state.partsRequestId,
-      row => row.id === state.partsRequestId && String(row.notes || '').startsWith(state.tag)
-    ));
+  for (const target of targets) {
+    if (target.partsRequestId) {
+      results.push(await safeDeleteById(
+        supabase,
+        'parts_requests',
+        target.partsRequestId,
+        row => row.id === target.partsRequestId && String(row.notes || '').startsWith(target.tag)
+      ));
+    }
   }
 
-  if (state.quotePdfUrl) {
+  for (const target of targets) {
+    if (!target.quotePdfUrl) continue;
     const marker = '/storage/v1/object/public/workshop-photos/';
-    const objectPath = state.quotePdfUrl.includes(marker)
-      ? decodeURIComponent(state.quotePdfUrl.split(marker)[1].split('?')[0])
+    const objectPath = target.quotePdfUrl.includes(marker)
+      ? decodeURIComponent(target.quotePdfUrl.split(marker)[1].split('?')[0])
       : null;
     if (objectPath?.startsWith('quote-pdfs/')) {
       const { error } = await supabase.storage.from('workshop-photos').remove([objectPath]);
@@ -263,6 +290,7 @@ test.describe.serial('safe TEST-AUDIT workflow audit', () => {
       inspectionId: null,
       partsRequestId: null,
       quotePdfUrl: null,
+      extraCleanupTargets: [],
     };
     const context = {
       baseURL: testInfo.project.use.baseURL || process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
@@ -459,15 +487,154 @@ test.describe.serial('safe TEST-AUDIT workflow audit', () => {
           await page.getByRole('button', { name: /customer approved/i }).click();
           await chooseRadixOption(page, /select method/i, 'Phone');
           await page.getByRole('button', { name: /record approval/i }).click();
-          await expect(page.getByText(/customer decision.*approved|customer approved/i)).toBeVisible({ timeout: 20_000 });
+          await expect(page.getByRole('dialog', { name: /record customer approval/i })).toBeHidden({ timeout: 20_000 });
+          await expect.poll(async () => {
+            const request = await findPartsRequest(supabase, state.partsJobCard);
+            return request?.status || 'missing';
+          }, { timeout: 30_000 }).toBe('customer_approved');
 
           const request = await findPartsRequest(supabase, state.partsJobCard);
-          if (request?.status !== 'customer_approved') throw new Error(`Expected customer_approved, found ${request?.status || 'missing'}.`);
           context.statusChanges.push(`${state.partsJobCard}: ${request.status}`);
           return 'Customer approval recorded.';
         });
+
+        await runStep('Fresh TEST-AUDIT request supports rules-priced SMS and customer decline', async () => {
+          const declineState = {
+            tag,
+            partsJobCard: makeJobCard(),
+            partsRequestId: null,
+            quotePdfUrl: null,
+          };
+          state.extraCleanupTargets.push(declineState);
+
+          await page.route('**/api/ai/analyse-repairs', async route => {
+            const request = await findPartsRequest(supabase, declineState.partsJobCard);
+            const analysis = await callAnalyseRepairsRoute({
+              request,
+              partsText: 'Air Filter',
+            });
+            await route.fulfill({
+              status: analysis.status,
+              contentType: 'application/json',
+              body: JSON.stringify(analysis.data),
+            });
+          });
+
+          await page.route('https://api.anthropic.com/v1/messages', async route => {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({
+                content: [{
+                  text: [
+                    'Hi there,',
+                    'We recommend the following work:',
+                    'Air Filter: $20.35 inc GST',
+                    'Total: $20.35 inc GST',
+                    'Please reply YES to approve or NO to decline. Fleurieu Motor Group Service 08 8552 1255',
+                  ].join('\n'),
+                }],
+              }),
+            });
+          });
+
+          await login(page, users.technician);
+          await page.getByRole('link', { name: /new request/i }).click();
+          await expect(page.getByRole('heading', { name: /new parts request/i })).toBeVisible();
+          await page.getByLabel(/job card number/i).fill(declineState.partsJobCard);
+          await page.getByRole('button', { name: /add part|add your first part/i }).first().click();
+          await chooseRadixOption(page, /select part/i, 'Air Filter');
+          await page.getByPlaceholder(/any additional information/i).fill(`${tag} decline and sms audit`);
+          await page.getByRole('button', { name: /submit request/i }).click();
+          await expect(page.getByRole('heading', { name: new RegExp(`job #${declineState.partsJobCard}`, 'i') })).toBeVisible({ timeout: 20_000 });
+
+          let request = await findPartsRequest(supabase, declineState.partsJobCard);
+          if (!request) throw new Error('Fresh TEST-AUDIT parts request was not found.');
+          if (!String(request.notes || '').startsWith(tag)) throw new Error('Fresh parts request is missing TEST-AUDIT marker in notes.');
+          declineState.partsRequestId = request.id;
+          context.recordsCreated.push(`parts_requests ${request.id} (${declineState.partsJobCard})`);
+          context.statusChanges.push(`${declineState.partsJobCard}: created as ${request.status}`);
+
+          await login(page, users.parts_interpreter);
+          await page.goto(`/RequestDetail?id=${declineState.partsRequestId}`, { waitUntil: 'domcontentloaded' });
+          await expect(page.getByRole('heading', { name: new RegExp(`job #${declineState.partsJobCard}`, 'i') })).toBeVisible({ timeout: 20_000 });
+          await page.getByPlaceholder(/add notes about this quote/i).fill(`${tag} Air Filter quote notes`);
+          await page.getByRole('button', { name: /save notes/i }).click();
+          await chooseRadixOption(page, /select parts eta/i, 'Stock');
+          await expect(page.getByRole('button', { name: /upload quote pdf/i })).toBeEnabled({ timeout: 20_000 });
+          await page.getByRole('button', { name: /upload quote pdf/i }).click();
+          await page.locator('input[type="file"]').setInputFiles(airFilterQuoteFixture);
+          await page.getByRole('button', { name: /upload & return quote/i }).click({ timeout: 10_000 });
+          await expect.poll(async () => {
+            const updated = await findPartsRequest(supabase, declineState.partsJobCard);
+            return updated?.status || 'missing';
+          }, { timeout: 30_000 }).toBe('quoted');
+          await expect.poll(async () => {
+            const updated = await findPartsRequest(supabase, declineState.partsJobCard);
+            return updated?.quote_pdf_text?.trim() ? 'extracted' : 'missing';
+          }, { timeout: 30_000 }).toBe('extracted');
+
+          request = await findPartsRequest(supabase, declineState.partsJobCard);
+          declineState.quotePdfUrl = request.quote_pdf_url || null;
+          const analysis = await callAnalyseRepairsRoute({ request, partsText: 'Air Filter' });
+          expect(analysis.status).toBe(200);
+          expect(analysis.data.source).toBe('rules');
+          expect(analysis.data.result.groups[0].parts_cost_ex_gst).toBe(18.5);
+          expect(analysis.data.result.line_items[0].line_total_inc_gst).toBe(20.35);
+          context.statusChanges.push(`${declineState.partsJobCard}: ${request.status}; rules parser source=${analysis.data.source}, parts_cost_ex_gst=${analysis.data.result.groups[0].parts_cost_ex_gst.toFixed(2)}, line_total_inc_gst=${analysis.data.result.line_items[0].line_total_inc_gst.toFixed(2)}`);
+
+          await login(page, users.workshop_controller);
+          await page.goto(`/RequestDetail?id=${declineState.partsRequestId}`, { waitUntil: 'domcontentloaded' });
+          await expect(page.getByRole('heading', { name: new RegExp(`job #${declineState.partsJobCard}`, 'i') })).toBeVisible({ timeout: 20_000 });
+          await chooseRadixOption(page, /select labour time/i, '0 Hours');
+          await expect(page.getByRole('button', { name: /approve upsell/i })).toBeEnabled({ timeout: 20_000 });
+          await page.getByRole('button', { name: /approve upsell/i }).click();
+          await expect.poll(async () => {
+            const updated = await findPartsRequest(supabase, declineState.partsJobCard);
+            return updated?.status || 'missing';
+          }, { timeout: 30_000 }).toBe('sent_to_advisor');
+          request = await findPartsRequest(supabase, declineState.partsJobCard);
+          context.statusChanges.push(`${declineState.partsJobCard}: ${request.status}`);
+
+          await login(page, users.service_advisor);
+          await page.goto(`/RequestDetail?id=${declineState.partsRequestId}`, { waitUntil: 'domcontentloaded' });
+          await expect(page.getByRole('button', { name: /generate sms draft/i })).toBeVisible({ timeout: 20_000 });
+          await page.getByRole('button', { name: /generate sms draft/i }).click();
+          const smsDraft = page.getByPlaceholder(/click 'generate sms draft'/i);
+          await expect(smsDraft).toHaveValue(/Air Filter/, { timeout: 30_000 });
+          const smsText = await smsDraft.inputValue();
+          expect(smsText).toContain('Air Filter');
+          expect(smsText).toContain('$20.35');
+          expect(smsText).not.toMatch(/TBC/i);
+
+          request = await findPartsRequest(supabase, declineState.partsJobCard);
+          expect(request.advisor_sms_draft || '').toContain('Air Filter');
+          expect(request.advisor_sms_draft || '').toContain('$20.35');
+          expect(request.advisor_sms_draft || '').not.toMatch(/TBC/i);
+          context.statusChanges.push(`${declineState.partsJobCard}: SMS includes Air Filter and $20.35 without TBC`);
+
+          await page.getByRole('button', { name: /customer denied/i }).click();
+          await chooseRadixOption(page, /select method/i, 'Phone');
+          await page.getByRole('button', { name: /record denial/i }).click();
+          await expect.poll(async () => {
+            const updated = await findPartsRequest(supabase, declineState.partsJobCard);
+            return updated?.status || 'missing';
+          }, { timeout: 30_000 }).toBe('customer_denied');
+          request = await findPartsRequest(supabase, declineState.partsJobCard);
+          context.statusChanges.push(`${declineState.partsJobCard}: ${request.status}`);
+          const denialDialogStillOpen = await page.getByRole('dialog', { name: /record customer denial/i }).isVisible().catch(() => false);
+          if (denialDialogStillOpen) {
+            context.statusChanges.push(`${declineState.partsJobCard}: customer_denied persisted, but denial dialog remained open after notification insert failure`);
+          }
+
+          await page.unroute('**/api/ai/analyse-repairs');
+          await page.unroute('https://api.anthropic.com/v1/messages');
+          return `Fresh TEST-AUDIT request generated priced SMS from rules parser and recorded customer denial.${denialDialogStillOpen ? ' Dialog remained open after status persisted; notification insert should be reviewed.' : ''}`;
+        });
       }
     } finally {
+      await page.unroute('**/api/ai/analyse-repairs').catch(() => {});
+      await page.unroute('https://api.anthropic.com/v1/messages').catch(() => {});
       context.cleanupResults = await cleanupAuditData(supabase, state).catch(error => [
         { table: 'cleanup', cleaned: false, error: error.message },
       ]);
