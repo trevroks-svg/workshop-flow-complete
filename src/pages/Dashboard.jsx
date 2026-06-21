@@ -55,6 +55,16 @@ export default function Dashboard() {
     enabled: !!user && showInspectionQueue
   });
 
+  const { data: technicianSubmittedInspections = [] } = useQuery({
+    queryKey: ['technicianSubmittedInspections', user?.email],
+    queryFn: () => entities.VehicleInspection.filter({
+      status: 'submitted',
+      technician_email: user.email
+    }),
+    refetchInterval: 10000,
+    enabled: !!user && effectiveRole === 'technician'
+  });
+
   // Filter out expired, archived, and WC-completed requests (unless viewing as admin/manager)
   const requests = allRequests.filter(r => {
     if (r.is_archived) return false;
@@ -117,7 +127,7 @@ export default function Dashboard() {
   const getFilteredByRole = () => {
     switch (effectiveRole) {
       case 'technician':
-        return requests.filter(r => r.created_by === user?.email);
+        return requests.filter(r => r.technician_email === user?.email);
       case 'parts_interpreter':
         if (statusFilter === 'quote_history') {
           return allRequests.filter(r => !r.is_archived && r.quote_pdf_url);
@@ -163,6 +173,10 @@ export default function Dashboard() {
       } else if (statusFilter === 'awaiting_workshop_approval') {
         matchesStatus = ['awaiting_workshop_approval'].includes(request.status);
       }
+    }
+
+    if (effectiveRole === 'technician' && statusFilter === 'approved') {
+      matchesStatus = ['approved', 'customer_approved'].includes(request.status);
     }
 
     // Service Manager/Admin (default view) special filters
@@ -311,6 +325,7 @@ export default function Dashboard() {
     // Technician default
     return {
       total: roleFilteredRequests.length,
+      pending: roleFilteredRequests.filter(r => ['sent_to_parts', 'quoted', 'awaiting_workshop_approval', 'sent_to_advisor', 'advisor_action_required', 'recommendation_added', 'sent_to_customer'].includes(r.status)).length,
       approved: roleFilteredRequests.filter(r => ['approved', 'customer_approved'].includes(r.status)).length
     };
   };
@@ -795,6 +810,20 @@ export default function Dashboard() {
                 {filteredRequests.map(request => (
                   <RequestCard key={request.id} request={request} showPdfLink={statusFilter === 'quote_history'} />
                 ))}
+              </div>
+            )}
+
+            {staffRole === 'technician' && technicianSubmittedInspections.length > 0 && (
+              <div className="mt-8">
+                <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4" />
+                  Submitted Vehicle Inspections ({technicianSubmittedInspections.length})
+                </h2>
+                <div className="space-y-3">
+                  {technicianSubmittedInspections.map(inspection => (
+                    <InspectionQueueCard key={inspection.id} inspection={inspection} />
+                  ))}
+                </div>
               </div>
             )}
           </>
