@@ -61,9 +61,7 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
 
   const [analysisWarning, setAnalysisWarning] = useState(null);
 
-  // Step 1: Analyse and group repairs
-  const runAnalysis = async () => {
-    setAnalysing(true);
+  const analyseRepairGroups = async () => {
     setAnalysisWarning(null);
     const partsText = getPartsText(request.parts);
     const { groups: initialised, pdfReadable, notesUsed } = await analyseRepairs(request, partsText);
@@ -76,6 +74,13 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
 
     setGroups(initialised);
     setShowGroups(true);
+    return initialised;
+  };
+
+  // Step 1: Analyse and group repairs
+  const runAnalysis = async () => {
+    setAnalysing(true);
+    await analyseRepairGroups();
     setAnalysing(false);
   };
 
@@ -172,9 +177,7 @@ Generate now:`;
   const handleGenerateOrRegenerate = async () => {
     if (!groups) {
       setAnalysing(true);
-      const partsText = getPartsText(request.parts);
-      const { groups: initialised } = await analyseRepairs(request, partsText);
-      setGroups(initialised);
+      const initialised = await analyseRepairGroups();
       setAnalysing(false);
       await generateText(initialised);
     } else {
@@ -219,6 +222,19 @@ Generate now:`;
           >
             {analysing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             {analysing ? "Analysing repairs..." : "Analyse Repairs (AI)"}
+          </Button>
+        )}
+
+        {groups && (
+          <Button
+            onClick={runAnalysis}
+            disabled={analysing || generating}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            {analysing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Re-analyse repairs
           </Button>
         )}
 

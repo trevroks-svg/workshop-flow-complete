@@ -48,9 +48,23 @@ export default function Dashboard() {
 
   const showInspectionQueue = ['service_advisor', 'service_manager', 'admin', 'super_admin'].includes(staffRole) || ['service_advisor', 'service_manager'].includes(adminViewAs);
 
-  const { data: submittedInspections = [] } = useQuery({
-    queryKey: ['submittedInspections'],
-    queryFn: () => entities.VehicleInspection.filter({ status: 'submitted' }),
+  const { data: activeInspections = [] } = useQuery({
+    queryKey: ['activeInspections'],
+    queryFn: async () => {
+      const reviewedCutoff = Date.now() - (24 * 60 * 60 * 1000);
+      const [submitted, reviewed] = await Promise.all([
+        entities.VehicleInspection.filter({ status: 'submitted' }),
+        entities.VehicleInspection.filter({ status: 'reviewed' })
+      ]);
+
+      return [
+        ...submitted,
+        ...reviewed.filter(inspection => (
+          inspection.reviewed_at &&
+          new Date(inspection.reviewed_at).getTime() >= reviewedCutoff
+        ))
+      ];
+    },
     refetchInterval: 10000,
     enabled: !!user && showInspectionQueue
   });
@@ -757,20 +771,20 @@ export default function Dashboard() {
             <div>
               <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-2">
                 <ClipboardList className="h-4 w-4" />
-                Vehicle Inspections ({submittedInspections.length})
+                Vehicle Inspections ({activeInspections.length})
               </h2>
-              {submittedInspections.length === 0 ? (
+              {activeInspections.length === 0 ? (
                 <Card className="border-0 shadow-sm">
                   <CardContent className="p-8 text-center">
                     <div className="p-3 bg-slate-100 rounded-full w-fit mx-auto mb-3">
                       <ClipboardList className="h-6 w-6 text-slate-400" />
                     </div>
-                    <p className="text-slate-500 text-sm">No inspections awaiting review</p>
+                    <p className="text-slate-500 text-sm">No active inspections</p>
                   </CardContent>
                 </Card>
               ) : (
                 <div className="space-y-3">
-                  {submittedInspections.map(inspection => (
+                  {activeInspections.map(inspection => (
                     <InspectionQueueCard key={inspection.id} inspection={inspection} />
                   ))}
                 </div>

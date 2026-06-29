@@ -29,6 +29,18 @@ function extractQuoteTotal(text) {
   return toNumber(matches[matches.length - 1][1]);
 }
 
+function extractTuneTotals(text) {
+  const partsTotalMatch = text.match(/PARTS\s+TOTAL\s+\$?([\d,]+\.\d{2})/i);
+  const gstMatch = text.match(/\bGST\s+\$?([\d,]+\.\d{2})/i);
+  const totalMatches = [...text.matchAll(/\bTOTAL\s+\$?([\d,]+\.\d{2})/gi)];
+
+  return {
+    parts_total_ex_gst: toNumber(partsTotalMatch?.[1]),
+    gst: toNumber(gstMatch?.[1]),
+    quote_total_inc_gst: toNumber(totalMatches.at(-1)?.[1]),
+  };
+}
+
 function parseLineItems(text) {
   const body = extractTableBody(text);
   const rowPattern = /([A-Za-z][A-Za-z0-9 /&().,+-]*?)\s+([A-Z0-9][A-Z0-9-]{2,})\s+(\d+(?:\.\d+)?)\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})/g;
@@ -56,6 +68,67 @@ function parseLineItems(text) {
   return rows;
 }
 
+function getTuneRows(text) {
+  const rows = [];
+  const rowPattern = /(?:^|\s)(\d+)\.\s+(.+?)(?=\s+\d+\.\s+|\s+PARTS\s+TOTAL\b|$)/gi;
+
+  for (const match of text.matchAll(rowPattern)) {
+    rows.push(match[2].trim());
+  }
+
+  return rows;
+}
+
+function parseTuneStandardRow(row) {
+  const match = row.match(/^([A-Z0-9][A-Z0-9-]{2,})\s+(.+?)\s+([A-Z0-9][A-Z0-9-]{1,})\s+(\d+(?:\.\d+)?)\s+(?:\d+(?:\.\d+)?\s+)?\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})$/i);
+  if (!match) return null;
+
+  const quantity = toNumber(match[4]);
+  const unitPriceExGst = toNumber(match[5]);
+  const lineTotalExGst = toNumber(match[7]);
+  const expectedTotal = roundCurrency((unitPriceExGst || 0) * (quantity || 0));
+
+  return {
+    description: match[2].trim(),
+    part_number: match[1].trim(),
+    quantity,
+    unit_price_ex_gst: unitPriceExGst,
+    gst: lineTotalExGst == null ? null : roundCurrency(lineTotalExGst * 0.1),
+    line_total_ex_gst: lineTotalExGst,
+    line_total_inc_gst: lineTotalExGst == null ? null : roundCurrency(lineTotalExGst * 1.1),
+    mathsValid: Math.abs(expectedTotal - lineTotalExGst) <= MONEY_TOLERANCE,
+  };
+}
+
+function parseTuneExtractedRow(row) {
+  const match = row.match(/^\$?([\d,]+\.\d{2})\s+(\d+(?:\.\d+)?)\s+\$?([\d,]+\.\d{2})\s+([A-Z0-9][A-Z0-9-]{1,})\s+(.+?)\s+([A-Z0-9][A-Z0-9-]{2,})\s+\$?([\d,]+\.\d{2})$/i);
+  if (!match) return null;
+
+  const leadingUnitPrice = toNumber(match[1]);
+  const quantity = toNumber(match[2]);
+  const lineTotalExGst = toNumber(match[3]);
+  const trailingUnitPrice = toNumber(match[7]);
+  const unitPriceExGst = trailingUnitPrice ?? leadingUnitPrice;
+  const expectedTotal = roundCurrency((unitPriceExGst || 0) * (quantity || 0));
+
+  return {
+    description: match[5].trim(),
+    part_number: match[6].trim(),
+    quantity,
+    unit_price_ex_gst: unitPriceExGst,
+    gst: lineTotalExGst == null ? null : roundCurrency(lineTotalExGst * 0.1),
+    line_total_ex_gst: lineTotalExGst,
+    line_total_inc_gst: lineTotalExGst == null ? null : roundCurrency(lineTotalExGst * 1.1),
+    mathsValid: Math.abs(expectedTotal - lineTotalExGst) <= MONEY_TOLERANCE,
+  };
+}
+
+function parseTuneLineItems(text) {
+  return getTuneRows(text)
+    .map(row => parseTuneStandardRow(row) || parseTuneExtractedRow(row))
+    .filter(Boolean);
+}
+
 function buildGroups(lineItems) {
   return lineItems.map(item => ({
     repair_name: item.description,
@@ -63,6 +136,57 @@ function buildGroups(lineItems) {
     parts_cost_ex_gst: roundCurrency(item.unit_price_ex_gst * item.quantity),
     estimated_labour_hours: 0.5,
   }));
+}
+
+function buildTuneResult(text) {
+  const lineItems = parseTuneLineItems(text);
+  const validLineItems = lineItems.filter(item =>
+    item.description &&
+    item.part_number &&
+    item.quantity > 0 &&
+    item.unit_price_ex_gst > 0 &&
+    item.line_total_ex_gst > 0 &&
+    item.mathsValid
+  );
+
+  if (!validLineItems.length || validLineItems.length !== lineItems.length) {
+    return null;
+  }
+
+  const totals = extractTuneTotals(text);
+  const lineExGstSum = roundCurrency(validLineItems.reduce((sum, item) => sum + item.line_total_ex_gst, 0));
+  const expectedGst = roundCurrency(lineExGstSum * 0.1);
+  const expectedTotal = roundCurrency(lineExGstSum + expectedGst);
+  const partsTotalMatches = totals.parts_total_ex_gst == null || Math.abs(lineExGstSum - totals.parts_total_ex_gst) <= MONEY_TOLERANCE;
+  const gstMatches = totals.gst == null || Math.abs(expectedGst - totals.gst) <= MONEY_TOLERANCE;
+  const quoteTotalMatches = totals.quote_total_inc_gst == null || Math.abs(expectedTotal - totals.quote_total_inc_gst) <= MONEY_TOLERANCE;
+
+  if (!partsTotalMatches || !gstMatches || !quoteTotalMatches) {
+    return {
+      success: false,
+      confidence: 0.6,
+      reason: 'Tune quote line totals do not match quote totals',
+      line_items: validLineItems,
+      ...totals,
+    };
+  }
+
+  const parsedLineItems = validLineItems.map(({ mathsValid, ...item }) => item);
+  const confidence = totals.quote_total_inc_gst == null ? 0.9 : 0.97;
+
+  return {
+    success: confidence >= HIGH_CONFIDENCE,
+    confidence,
+    result: {
+      pdf_was_readable: true,
+      notes_used_for_pricing: false,
+      quote_total_inc_gst: totals.quote_total_inc_gst ?? expectedTotal,
+      parts_total_ex_gst: totals.parts_total_ex_gst ?? lineExGstSum,
+      gst: totals.gst ?? expectedGst,
+      line_items: parsedLineItems,
+      groups: buildGroups(parsedLineItems),
+    },
+  };
 }
 
 export function parseQuoteText(quotePdfText) {
@@ -73,6 +197,11 @@ export function parseQuoteText(quotePdfText) {
       confidence: 0,
       reason: 'No quote text supplied',
     };
+  }
+
+  const tuneResult = buildTuneResult(text);
+  if (tuneResult?.success) {
+    return tuneResult;
   }
 
   const hasTableHeader = /Description\s+Part\s+Number\s+Qty\s+Unit\s+Price\s+\(ex\s+GST\)\s+GST\s+Total\s+\(inc\s+GST\)/i.test(text);
@@ -88,6 +217,8 @@ export function parseQuoteText(quotePdfText) {
   );
 
   if (!hasTableHeader || !validLineItems.length || validLineItems.length !== rawLineItems.length) {
+    if (tuneResult) return tuneResult;
+
     return {
       success: false,
       confidence: 0.35,

@@ -107,6 +107,27 @@ function parseOutput(response) {
   return JSON.parse(text);
 }
 
+async function hydrateRequestFromDatabase(request) {
+  if (!request?.id || !process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return request;
+  }
+
+  try {
+    const { supabaseAdmin } = await import('../supabaseAdmin.js');
+    const { data, error } = await supabaseAdmin
+      .from('parts_requests')
+      .select('*')
+      .eq('id', request.id)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? { ...request, ...data } : request;
+  } catch (error) {
+    console.warn('Could not hydrate request before repair analysis:', error);
+    return request;
+  }
+}
+
 export default async function analyseRepairs(req, res) {
   try {
     const { request, partsText = '' } = req.body || {};
@@ -114,7 +135,9 @@ export default async function analyseRepairs(req, res) {
       return res.status(400).json({ success: false, error: 'request is required' });
     }
 
-    const rulesAnalysis = parseQuoteText(request.quote_pdf_text);
+    const requestForAnalysis = await hydrateRequestFromDatabase(request);
+
+    const rulesAnalysis = parseQuoteText(requestForAnalysis.quote_pdf_text);
     if (rulesAnalysis.success) {
       return res.json({
         success: true,
@@ -134,7 +157,7 @@ export default async function analyseRepairs(req, res) {
 
     const response = await openai.responses.create({
       model: process.env.OPENAI_ANALYSE_REPAIRS_MODEL || 'gpt-5.4-nano',
-      input: buildPrompt(request, partsText),
+      input: buildPrompt(requestForAnalysis, partsText),
       text: {
         format: {
           type: 'json_schema',

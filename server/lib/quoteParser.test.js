@@ -87,3 +87,70 @@ test('rules parser rejects rows that fail the GST maths check', () => {
 
   assert.equal(parsed.success, false);
 });
+
+test('rules parser extracts standard Tune quote rows', () => {
+  const parsed = parseQuoteText([
+    'PARTS QUOTATION',
+    'Line Part Description Bin Ordered B/O Price Unit Ext Price',
+    '1. MZ691099S BLADE,HYBRID REFILL,8.5x710MM NARVA 2 12.01 12.01 24.02',
+    '2. 87139YZZ25 CABIN AIR FILTER R4B 1 78.88 78.88 78.88',
+    'PARTS TOTAL $102.90',
+    'GST $10.29',
+    'TOTAL $113.19',
+  ].join(' '));
+
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.result.pdf_was_readable, true);
+  assert.equal(parsed.result.notes_used_for_pricing, false);
+  assert.equal(parsed.result.parts_total_ex_gst, 102.90);
+  assert.equal(parsed.result.gst, 10.29);
+  assert.equal(parsed.result.quote_total_inc_gst, 113.19);
+  assert.equal(parsed.result.line_items.length, 2);
+
+  assert.deepEqual(parsed.result.line_items[0], {
+    description: 'BLADE,HYBRID REFILL,8.5x710MM',
+    part_number: 'MZ691099S',
+    quantity: 2,
+    unit_price_ex_gst: 12.01,
+    gst: 2.4,
+    line_total_ex_gst: 24.02,
+    line_total_inc_gst: 26.42,
+  });
+
+  assert.deepEqual(parsed.result.line_items[1], {
+    description: 'CABIN AIR FILTER',
+    part_number: '87139YZZ25',
+    quantity: 1,
+    unit_price_ex_gst: 78.88,
+    gst: 7.89,
+    line_total_ex_gst: 78.88,
+    line_total_inc_gst: 86.77,
+  });
+
+  assert.equal(parsed.result.groups[0].parts_cost_ex_gst, 24.02);
+  assert.equal(parsed.result.groups[1].parts_cost_ex_gst, 78.88);
+});
+
+test('rules parser extracts Tune rows in pdfjs observed order', () => {
+  const parsed = parseQuoteText([
+    'PARTS QUOTATION CASH CUSTOMER - PARTS VICTOR HARBOR',
+    'Order No. Description Line Sales Rep. Unit Part Bin B/O Dispatch To Invoice To Price Ext Price Ordered',
+    '1. 12.01 2 24.02 NARVA BLADE,HYBRID REFILL,8.5x710MM MZ691099S 12.01',
+    '2. 78.88 1 78.88 R4B CABIN AIR FILTER 87139YZZ25 78.88',
+    'PARTS TOTAL $102.90 GST $10.29 TOTAL $113.19',
+  ].join(' '));
+
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.result.quote_total_inc_gst, 113.19);
+  assert.equal(parsed.result.line_items.length, 2);
+  assert.equal(parsed.result.line_items[0].description, 'BLADE,HYBRID REFILL,8.5x710MM');
+  assert.equal(parsed.result.line_items[0].part_number, 'MZ691099S');
+  assert.equal(parsed.result.line_items[0].quantity, 2);
+  assert.equal(parsed.result.line_items[0].unit_price_ex_gst, 12.01);
+  assert.equal(parsed.result.line_items[0].line_total_ex_gst, 24.02);
+  assert.equal(parsed.result.line_items[1].description, 'CABIN AIR FILTER');
+  assert.equal(parsed.result.line_items[1].part_number, '87139YZZ25');
+  assert.equal(parsed.result.line_items[1].quantity, 1);
+  assert.equal(parsed.result.line_items[1].unit_price_ex_gst, 78.88);
+  assert.equal(parsed.result.line_items[1].line_total_ex_gst, 78.88);
+});

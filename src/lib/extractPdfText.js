@@ -23,3 +23,13 @@ export async function extractPdfText(file) {
 
   return pages.join('\n').trim();
 }
+
+export async function extractPdfTextFromUrl(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Could not fetch PDF (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  return extractPdfText(blob);
+}
