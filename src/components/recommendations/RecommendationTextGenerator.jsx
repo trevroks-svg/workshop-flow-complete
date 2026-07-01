@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Sparkles, Copy, Loader2, CheckCircle, ClipboardList, RefreshCw, Wrench, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
-import { analyseRepairs } from "@/lib/analyseRepairs";
+import { analyseRepairs, applyWorkshopControllerLabour, mergeRelatedRepairGroups } from "@/lib/analyseRepairs";
 
 const PART_TYPE_LABELS = {
   air_filter: "Air Filter",
@@ -65,6 +65,8 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
     setAnalysisWarning(null);
     const partsText = getPartsText(request.parts);
     const { groups: initialised, pdfReadable, notesUsed } = await analyseRepairs(request, partsText);
+    const mergedGroups = mergeRelatedRepairGroups(initialised);
+    const groupsWithSelectedLabour = applyWorkshopControllerLabour(mergedGroups, request);
 
     if (!pdfReadable && !notesUsed) {
       setAnalysisWarning("PDF could not be read and no Parts Interpreter notes found. Parts prices are shown as TBC.");
@@ -72,9 +74,9 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
       setAnalysisWarning("PDF was blank — prices extracted from Parts Interpreter notes.");
     }
 
-    setGroups(initialised);
+    setGroups(groupsWithSelectedLabour);
     setShowGroups(true);
-    return initialised;
+    return groupsWithSelectedLabour;
   };
 
   // Step 1: Analyse and group repairs

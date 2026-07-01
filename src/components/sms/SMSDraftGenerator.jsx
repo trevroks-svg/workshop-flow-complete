@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Sparkles, Copy, Loader2, CheckCircle, MessageSquare, RefreshCw, Wrench, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
-import { analyseRepairs } from "@/lib/analyseRepairs";
+import { analyseRepairs, applyWorkshopControllerLabour, mergeRelatedRepairGroups } from "@/lib/analyseRepairs";
 
 const PART_TYPE_LABELS = {
   air_filter: "Air Filter",
@@ -61,29 +61,6 @@ const getGroupPricing = (group, request, groups, labourRate, gst) => {
     totalIncGst: quoteTotalIncGst + labourIncGst,
     source: 'quote_total'
   };
-};
-
-const getSelectedLabourHours = (request) => {
-  if (!request.labour_time_selection) return null;
-  if (request.labour_time_selection === 'other') {
-    return request.labour_time_custom_hours != null ? Number(request.labour_time_custom_hours) : null;
-  }
-  return Number(request.labour_time_selection);
-};
-
-const applySelectedLabour = (groups, request) => {
-  const selectedHours = getSelectedLabourHours(request);
-  if (selectedHours == null || Number.isNaN(selectedHours)) return groups;
-
-  if (selectedHours === 0 || groups.length === 1) {
-    return groups.map(g => ({
-      ...g,
-      labour_hours: selectedHours,
-      labour_overridden: true
-    }));
-  }
-
-  return groups;
 };
 
 function getPartsText(parts = []) {
@@ -143,7 +120,8 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
     setAnalysisWarning(null);
     const partsText = getPartsText(request.parts);
     const { groups: initialised, pdfReadable, notesUsed } = await analyseRepairs(request, partsText);
-    const groupsWithSelectedLabour = applySelectedLabour(initialised, request);
+    const mergedGroups = mergeRelatedRepairGroups(initialised);
+    const groupsWithSelectedLabour = applyWorkshopControllerLabour(mergedGroups, request);
 
     if (!pdfReadable && notesUsed) {
       setAnalysisWarning("PDF text was not available to the AI, so prices were taken from Parts Interpreter notes.");

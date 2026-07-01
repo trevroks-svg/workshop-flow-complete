@@ -11,7 +11,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ArrowLeft, Upload, FileText, Download, Send, CheckCircle, Loader2, History, ExternalLink, RefreshCw, XCircle } from "lucide-react";
@@ -216,8 +215,12 @@ export default function RequestDetail() {
     }
   };
 
-  const labourIsValid = request?.labour_time_selection && 
+  const hasValidLabourLines = Array.isArray(request?.labour_lines) &&
+    request.labour_lines.length > 0 &&
+    request.labour_lines.every(line => Number.isFinite(Number(line.hours)));
+  const hasValidLabourTimeSelection = request?.labour_time_selection &&
     !(request.labour_time_selection === 'other' && !request.labour_time_custom_hours);
+  const labourIsValid = hasValidLabourLines || hasValidLabourTimeSelection;
 
   const handleWorkshopApproval = async () => {
     await updateStatusMutation.mutateAsync({
@@ -555,8 +558,8 @@ export default function RequestDetail() {
         )}
 
         {/* Labour Line Analyser - WC on quoted status with multiple parts */}
-        {(['workshop_controller', 'service_manager'].includes(effectiveRole) || isAdmin) && 
-         request.status === 'quoted' && 
+        {(['workshop_controller', 'service_manager'].includes(effectiveRole) || isAdmin) &&
+         request.status === 'quoted' &&
          request.parts?.length > 1 && (
           <LabourLineAnalyser
             request={request}
@@ -565,20 +568,22 @@ export default function RequestDetail() {
           />
         )}
 
-        {/* Labour Time Selector - Workshop Controller / admin-as-WC on quoted status */}
-        {(['workshop_controller', 'service_manager'].includes(effectiveRole) || isAdmin) && request.status === 'quoted' && (
-          <LabourTimeSelector 
-            request={request} 
-            user={user} 
+        {/* Labour Time Selector - fallback when no saved labour lines exist */}
+        {(['workshop_controller', 'service_manager'].includes(effectiveRole) || isAdmin) &&
+         request.status === 'quoted' &&
+         !hasValidLabourLines && (
+          <LabourTimeSelector
+            request={request}
+            user={user}
             labourRate={labourRate}
-            onUpdate={() => refetch()} 
+            onUpdate={() => refetch()}
           />
         )}
 
         {/* Labour Summary Panel - Service Advisor/Manager/Admin (read-only) */}
         {(['service_advisor', 'service_manager'].includes(effectiveRole) || isAdmin) && 
          ['sent_to_advisor', 'advisor_action_required', 'recommendation_added', 'sent_to_customer', 'customer_approved', 'customer_denied'].includes(request.status) && 
-         request.labour_time_selection && (
+         labourIsValid && (
           <LabourSummaryPanel request={request} labourRate={labourRate} />
         )}
 
@@ -778,7 +783,7 @@ export default function RequestDetail() {
                     Approve – Add to Recommendations
                   </Button>
                   {!labourIsValid && (
-                    <p className="text-sm text-amber-600 text-center">Please select labour time above before approving</p>
+                    <p className="text-sm text-amber-600 text-center">Please save labour lines above or select labour time before approving</p>
                   )}
                 </div>
               )}

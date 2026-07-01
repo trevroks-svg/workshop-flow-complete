@@ -14,8 +14,15 @@ const LABOUR_LABELS = {
 export default function LabourSummaryPanel({ request, labourRate: labourRateProp }) {
   const labourRateExGST = request.labour_rate_ex_gst || labourRateProp || 110;
   const gstPercent = request.gst_percent || 10;
+  const validLabourLines = Array.isArray(request.labour_lines)
+    ? request.labour_lines.filter(line => Number.isFinite(Number(line.hours)))
+    : [];
+  const hasLabourLines = validLabourLines.length > 0;
 
   const getFinalHours = () => {
+    if (hasLabourLines) {
+      return validLabourLines.reduce((sum, line) => sum + Number(line.hours), 0);
+    }
     if (request.labour_time_selection === 'other') {
       return request.labour_time_custom_hours || 0;
     }
@@ -27,7 +34,7 @@ export default function LabourSummaryPanel({ request, labourRate: labourRateProp
   const labourGSTAmount = labourCostExGST * (gstPercent / 100);
   const labourCostIncGST = labourCostExGST + labourGSTAmount;
 
-  if (!request.labour_time_selection) {
+  if (!hasLabourLines && !request.labour_time_selection) {
     return null;
   }
 
@@ -43,9 +50,11 @@ export default function LabourSummaryPanel({ request, labourRate: labourRateProp
         <div className="space-y-3">
           <div className="flex justify-between text-sm">
             <span className="text-blue-700">
-              Labour Time: {request.labour_time_selection === 'other' 
-                ? `${request.labour_time_custom_hours} Hours (Custom)` 
-                : LABOUR_LABELS[request.labour_time_selection]}
+              Labour Time: {hasLabourLines
+                ? `${finalHours} Hours (Saved Labour Lines)`
+                : request.labour_time_selection === 'other'
+                  ? `${request.labour_time_custom_hours} Hours (Custom)`
+                  : LABOUR_LABELS[request.labour_time_selection]}
             </span>
             <span className="font-medium text-blue-900">{finalHours} hrs</span>
           </div>

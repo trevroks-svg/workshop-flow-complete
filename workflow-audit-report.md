@@ -1,8 +1,8 @@
 # Workshop Flow Workflow Audit Report
 
-Generated: 2026-06-24T12:35:22.445Z
+Generated: 2026-07-01T11:13:31.587Z
 Base URL: http://localhost:5173
-Marker: TEST-AUDIT-1782304459072
+Marker: TEST-AUDIT-1782904343270
 
 Safety note: Only TEST-AUDIT-marked records created by this run were used. Cleanup was attempted only for captured IDs after marker checks.
 
@@ -10,16 +10,14 @@ Safety note: Only TEST-AUDIT-marked records created by this run were used. Clean
 
 | Step | Result | Notes | Screenshot |
 | --- | --- | --- | --- |
-| Technician creates and submits Vehicle Inspection | PASS | Created vehicle_inspections 38d12f59-fde3-49a3-81a4-0f465f73dfe6 | tests\screenshots\workflow-audit\01-technician-creates-and-submits-vehicle-inspection.png |
-| Service Advisor can see submitted inspection | PASS | Submitted inspection visible in advisor Vehicle Inspections queue. | tests\screenshots\workflow-audit\02-service-advisor-can-see-submitted-inspection.png |
-| Technician creates Parts Request | PASS | Created parts_requests f85d3558-723a-4340-8c5b-8948ba57e467 | tests\screenshots\workflow-audit\03-technician-creates-parts-request.png |
-| Parts Interpreter can see request | PASS | Request visible in Parts Interpreter queue. | tests\screenshots\workflow-audit\04-parts-interpreter-can-see-request.png |
-| Parts Interpreter adds quote details and submits to Workshop Controller | PASS | Quote notes and ETA saved; quote PDF uploaded and text extracted for Advisor/AI processing. | tests\screenshots\workflow-audit\05-parts-interpreter-adds-quote-details-and-submits-to-workshop-controller.png |
-| Workshop Controller can see quoted request | PASS | Quoted request visible in Workshop Controller queue. | tests\screenshots\workflow-audit\06-workshop-controller-can-see-quoted-request.png |
-| Workshop Controller approves and sends to Service Advisor | PASS | Workshop Controller approved via recommendation path. | tests\screenshots\workflow-audit\07-workshop-controller-approves-and-sends-to-service-advisor.png |
-| Service Advisor can see approved recommendation | PASS | Approved recommendation visible and added to recommendations. | tests\screenshots\workflow-audit\08-service-advisor-can-see-approved-recommendation.png |
-| Service Advisor marks customer approved | PASS | Customer approval recorded. | tests\screenshots\workflow-audit\09-service-advisor-marks-customer-approved.png |
-| Fresh TEST-AUDIT request supports rules-priced SMS and customer decline | PASS | Fresh TEST-AUDIT request generated priced SMS from rules parser and recorded customer denial. Dialog remained open after status persisted; notification insert should be reviewed. | tests\screenshots\workflow-audit\10-fresh-test-audit-request-supports-rules-priced-sms-and-customer-decline.png |
+| Technician creates Parts Request | PASS | Created parts_requests a0b86c62-895d-4b12-9be3-638b382b7c56 | tests\screenshots\workflow-audit\01-technician-creates-parts-request.png |
+| Parts Interpreter can see request | PASS | Request visible in Parts Interpreter queue. | tests\screenshots\workflow-audit\02-parts-interpreter-can-see-request.png |
+| Parts Interpreter adds quote details and submits to Workshop Controller | PASS | Quote notes and ETA saved; quote PDF uploaded and text extracted for Advisor/AI processing. | tests\screenshots\workflow-audit\03-parts-interpreter-adds-quote-details-and-submits-to-workshop-controller.png |
+| Workshop Controller can see quoted request | PASS | Quoted request visible in Workshop Controller queue. | tests\screenshots\workflow-audit\04-workshop-controller-can-see-quoted-request.png |
+| Workshop Controller approves and sends to Service Advisor | PASS | Workshop Controller approved via recommendation path. | tests\screenshots\workflow-audit\05-workshop-controller-approves-and-sends-to-service-advisor.png |
+| Service Advisor can see approved recommendation | PASS | Approved recommendation visible and added to recommendations. | tests\screenshots\workflow-audit\06-service-advisor-can-see-approved-recommendation.png |
+| Service Advisor marks customer approved | PASS | Customer approval recorded. | tests\screenshots\workflow-audit\07-service-advisor-marks-customer-approved.png |
+| Fresh TEST-AUDIT request supports rules-priced SMS and customer decline | PASS | Fresh TEST-AUDIT request generated priced SMS from rules parser and recorded customer denial. Dialog remained open after status persisted; notification insert should be reviewed. | tests\screenshots\workflow-audit\08-fresh-test-audit-request-supports-rules-priced-sms-and-customer-decline.png |
 
 ## Console Errors
 
@@ -27,73 +25,78 @@ None recorded.
 
 ## API Errors
 
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/users?select=*&id=eq.d8445c2e-c6b8-4a3c-8e8c-5ceeb32ccaa3 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_role=eq.service_advisor&order=created_at.desc&limit=30 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_role=eq.parts_interpreter&order=created_at.desc&limit=30 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/businesses?select=*&id=eq.906467f2-e10b-44ef-80b3-d62b909698c7&order=created_at.desc&limit=200 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.parts%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&id=eq.f85d3558-723a-4340-8c5b-8948ba57e467&order=created_at.desc&limit=200 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/quote_request_photos?select=*&quote_request_id=eq.f85d3558-723a-4340-8c5b-8948ba57e467&order=created_at.desc&limit=200 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/vehicle_inspections?select=*&request_id=eq.f85d3558-723a-4340-8c5b-8948ba57e467&order=created_at.desc&limit=200 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_role=eq.parts_interpreter&order=created_at.desc&limit=30 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/users?select=*&id=eq.8e8374dd-e807-46d7-97eb-2dddd22ec034 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.wc%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
-- PATCH https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?id=eq.f85d3558-723a-4340-8c5b-8948ba57e467&select=* net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_role=eq.parts_interpreter&order=created_at.desc&limit=30 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&id=eq.a0b86c62-895d-4b12-9be3-638b382b7c56&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/quote_request_photos?select=*&quote_request_id=eq.a0b86c62-895d-4b12-9be3-638b382b7c56&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/quote_request_photos?select=*&quote_request_id=eq.a0b86c62-895d-4b12-9be3-638b382b7c56&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/businesses?select=*&id=eq.906467f2-e10b-44ef-80b3-d62b909698c7&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/businesses?select=*&id=eq.906467f2-e10b-44ef-80b3-d62b909698c7&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.wc%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&id=eq.a0b86c62-895d-4b12-9be3-638b382b7c56&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.wc%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.parts%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&id=eq.a715562c-392c-4519-963a-70f6a9d1edd5&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/vehicle_inspections?select=*&request_id=eq.a715562c-392c-4519-963a-70f6a9d1edd5&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/quote_request_photos?select=*&quote_request_id=eq.a715562c-392c-4519-963a-70f6a9d1edd5&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&id=eq.a715562c-392c-4519-963a-70f6a9d1edd5&order=created_at.desc&limit=200 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/businesses?select=*&id=eq.906467f2-e10b-44ef-80b3-d62b909698c7&order=created_at.desc&limit=200 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/quote_request_photos?select=*&quote_request_id=eq.19427e98-adea-48e8-b954-18ba2af532f3&order=created_at.desc&limit=200 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&id=eq.19427e98-adea-48e8-b954-18ba2af532f3&order=created_at.desc&limit=200 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/vehicle_inspections?select=*&request_id=eq.19427e98-adea-48e8-b954-18ba2af532f3&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/vehicle_inspections?select=*&request_id=eq.a715562c-392c-4519-963a-70f6a9d1edd5&order=created_at.desc&limit=200 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.parts%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_role=eq.parts_interpreter&order=created_at.desc&limit=30 net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/businesses?select=*&id=eq.906467f2-e10b-44ef-80b3-d62b909698c7&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/quote_request_photos?select=*&quote_request_id=eq.a715562c-392c-4519-963a-70f6a9d1edd5&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.parts%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.wc%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
-- PATCH https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?id=eq.19427e98-adea-48e8-b954-18ba2af532f3&select=* net::ERR_ABORTED
-- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_role=eq.service_advisor&order=created_at.desc&limit=30 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- PATCH https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?id=eq.a715562c-392c-4519-963a-70f6a9d1edd5&select=* net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/vehicle_inspections?select=*&status=eq.submitted&order=created_at.desc&limit=200 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.advisor%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
+- GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/vehicle_inspections?select=*&status=eq.reviewed&order=created_at.desc&limit=200 net::ERR_ABORTED
 - GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
 
 ## Status Changes Observed
 
-- J22867663: created as sent_to_parts
-- J22867663: quoted
-- J22867663: advisor_action_required
-- J22867663: recommendation_added
-- J22867663: customer_approved
-- J24703899: created as sent_to_parts
-- J24703899: quoted; rules parser source=rules, parts_cost_ex_gst=18.50, line_total_inc_gst=20.35
-- J24703899: sent_to_advisor
-- J24703899: SMS includes Air Filter and $20.35 without TBC
-- J24703899: customer_denied
-- J24703899: customer_denied persisted, but denial dialog remained open after notification insert failure
+- TEST-AUDIT-1782904343270-PARTS: created as sent_to_parts
+- TEST-AUDIT-1782904343270-PARTS: quoted
+- TEST-AUDIT-1782904343270-PARTS: advisor_action_required
+- TEST-AUDIT-1782904343270-PARTS: recommendation_added
+- TEST-AUDIT-1782904343270-PARTS: customer_approved
+- J31782306: created as sent_to_parts
+- J31782306: quoted; rules parser source=rules, parts_cost_ex_gst=18.50, line_total_inc_gst=20.35
+- J31782306: sent_to_advisor
+- J31782306: SMS includes Air Filter and $20.35 without TBC
+- J31782306: customer_denied
+- J31782306: customer_denied persisted, but denial dialog remained open after notification insert failure
 
 ## Records Created
 
-- vehicle_inspections 38d12f59-fde3-49a3-81a4-0f465f73dfe6 (J82372350)
-- parts_requests f85d3558-723a-4340-8c5b-8948ba57e467 (J22867663)
-- parts_requests 19427e98-adea-48e8-b954-18ba2af532f3 (J24703899)
+- parts_requests a0b86c62-895d-4b12-9be3-638b382b7c56 (TEST-AUDIT-1782904343270-PARTS)
+- parts_requests a715562c-392c-4519-963a-70f6a9d1edd5 (J31782306)
 
 ## Records Cleaned Up
 
-- notifications 73a7e3d7-5495-4251-81b0-66ecfad31b7d: cleaned
-- notifications 39728540-4336-412f-90a5-bc26ff37a566: cleaned
-- notifications bd06a9c5-60f6-4090-841b-b5af464e43a3: cleaned
-- notifications 24882a05-2689-442e-936e-0a79ca587615: cleaned
-- notifications cc756105-0fa1-4235-914f-de3fb5abc57d: cleaned
-- notifications e766fca5-3d2b-4509-a28a-7f4159c68605: cleaned
-- notifications 714848fc-5036-4be8-bc10-c255f8048f5f: cleaned
-- notifications 4c23bff1-6a19-4e67-821d-5231ad9fddc3: cleaned
-- vehicle_inspections 38d12f59-fde3-49a3-81a4-0f465f73dfe6: cleaned
-- parts_requests f85d3558-723a-4340-8c5b-8948ba57e467: cleaned
-- parts_requests 19427e98-adea-48e8-b954-18ba2af532f3: cleaned
-- storage:workshop-photos quote-pdfs/1782304479638-fdxndhl2dlt.pdf: cleaned
-- storage:workshop-photos quote-pdfs/1782304503777-68yfeaex36a.pdf: cleaned
+- notifications 2ceeb937-617a-4c63-91c9-ed04ea12d914: cleaned
+- notifications 9b03437f-9cdb-40ac-8875-e28b33f0208d: cleaned
+- notifications 6910da8c-278f-48f8-8693-c3380280bcad: cleaned
+- notifications 5c57d742-b391-4e13-83cb-2a772919926f: cleaned
+- notifications ac7db22a-e33e-40f9-b747-0989cc7899ff: cleaned
+- notifications d5035bf4-838e-44a7-89a9-46af6480b11d: cleaned
+- notifications 989cccf8-f581-4edc-bf81-2d384e40f269: cleaned
+- notifications 11122862-b95a-408b-91aa-cdab2a100983: cleaned
+- parts_requests a0b86c62-895d-4b12-9be3-638b382b7c56: cleaned
+- parts_requests a715562c-392c-4519-963a-70f6a9d1edd5: cleaned
+- storage:workshop-photos quote-pdfs/1782904361390-t6g34wcv63m.pdf: cleaned
+- storage:workshop-photos quote-pdfs/1782904391237-qtbhn3vat2i.pdf: cleaned
 
 ## Recommended First Fix
 
@@ -101,7 +104,7 @@ No handoff failure recorded. Review API abort noise separately if it remains rep
 
 ## Summary
 
-- Steps passed: 10
+- Steps passed: 8
 - Steps failed: 0
 - Steps skipped: 0
-- Screenshots captured: 10
+- Screenshots captured: 8
