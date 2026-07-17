@@ -27,6 +27,7 @@ import checkOverdueRequests     from './routes/checkOverdueRequests.js';
 import createCheckoutSession    from './routes/createCheckoutSession.js';
 import stripeWebhook            from './routes/stripeWebhook.js';
 import analyseRepairs           from './routes/analyseRepairs.js';
+import generateFollowUpSms      from './routes/generateFollowUpSms.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -46,6 +47,7 @@ app.post('/api/check-overdue-requests',      checkOverdueRequests);   // call fr
 app.post('/api/create-checkout-session',     createCheckoutSession);
 app.post('/api/stripe-webhook',              stripeWebhook);
 app.post('/api/ai/analyse-repairs',          analyseRepairs);
+app.post('/api/ai/generate-follow-up-sms',   generateFollowUpSms);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

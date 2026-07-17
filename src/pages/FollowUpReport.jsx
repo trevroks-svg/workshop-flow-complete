@@ -84,41 +84,72 @@ function SMSRow({ request, user, labourRate, onFollowUpDone }) {
   // Step 2: Generate SMS from groups with proper parts + labour cost calculation
   const generateSms = async (groupsToUse) => {
     setGenerating(true);
-    const gst = 1.1;
+    const aiUnavailableMessage = 'AI generation is unavailable. Created an editable follow-up SMS instead.';
+    let fallbackText = `Hi there, following up on job ${jobCard}. The declined or unactioned work is: ${partsText || 'price TBC'}. Please reply YES to approve or call Fleurieu Motor Group Service on 08 8552 1255 to discuss.`;
+    try {
+      const gst = 1.1;
+      const pricedGroups = groupsToUse.map(g => {
+        const partsExGst = g.parts_cost_ex_gst;
+        const labourHours = g.labour_hours;
+        const labourExGst = labourHours != null ? labourHours * labourRate : null;
+        const totalIncGst = (partsExGst != null && labourExGst != null)
+          ? (partsExGst + labourExGst) * gst
+          : null;
 
-    const repairLines = groupsToUse.map(g => {
-      const partsExGst = g.parts_cost_ex_gst;
-      const labourHours = g.labour_hours;
-      const labourExGst = labourHours != null ? labourHours * labourRate : null;
-      const labourIncGst = labourExGst != null ? labourExGst * gst : null;
-      const partsIncGst = partsExGst != null ? partsExGst * gst : null;
-      const totalIncGst = (partsExGst != null && labourExGst != null)
-        ? ((partsExGst + labourExGst) * gst).toFixed(2)
+        return { ...g, totalIncGst };
+      });
+
+      const allPricesKnown = pricedGroups.length > 0 && pricedGroups.every(g => g.totalIncGst != null);
+      const grandTotalIncGst = allPricesKnown
+        ? pricedGroups.reduce((sum, g) => sum + g.totalIncGst, 0).toFixed(2)
         : null;
+      const repairLines = pricedGroups.map(g =>
+        `${g.repair_name}: ${g.totalIncGst != null ? `$${g.totalIncGst.toFixed(2)} inc GST` : 'price TBC'}`
+      ).join('\n');
+      const greeting = customerName === 'the customer' ? 'Hi there' : `Hi ${customerName}`;
+      const vehicleText = vehicle === 'your vehicle' ? 'your vehicle' : `your ${vehicle}`;
+      const statusText = type === 'declined'
+        ? `you previously declined this work on ${decisionDate}`
+        : 'We have not yet received a response about this work';
 
-      return `Repair: ${g.repair_name}
-  Parts: ${g.parts.join(', ')}
-  Parts cost (ex GST): ${partsExGst != null ? `$${partsExGst.toFixed(2)}` : 'TBC'}
-  Parts cost (inc GST): ${partsIncGst != null ? `$${partsIncGst.toFixed(2)}` : 'TBC'}
-  Labour: ${labourHours != null ? `${labourHours}h @ $${labourRate}/h ex GST = $${labourIncGst?.toFixed(2)} inc GST` : 'not specified'}
-  Total (inc GST): ${totalIncGst ? `$${totalIncGst}` : 'TBC'}`;
-    }).join('\n\n');
+      const generatedText = `${greeting}, ${statusText} for job ${jobCard} on ${vehicleText}. Just following up in case you would like to go ahead.\n${repairLines}\nTotal: ${grandTotalIncGst ? `$${grandTotalIncGst} inc GST` : 'price TBC'}\nPlease reply YES to approve or call Fleurieu Motor Group Service on 08 8552 1255 to discuss.`;
+      fallbackText = generatedText;
 
-    const knownGroups = groupsToUse.filter(g => g.parts_cost_ex_gst != null && g.labour_hours != null);
-    const grandTotalIncGst = knownGroups.length === groupsToUse.length
-      ? (groupsToUse.reduce((sum, g) => sum + (g.parts_cost_ex_gst + g.labour_hours * labourRate), 0) * gst).toFixed(2)
-      : null;
-    const anyPriceKnown = groupsToUse.some(g => g.parts_cost_ex_gst != null || g.labour_hours != null);
+      const apiResponse = await fetch('/api/ai/generate-follow-up-sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: customerName === 'the customer' ? '' : customerName,
+          vehicle: vehicle === 'your vehicle' ? '' : vehicle,
+          jobCard,
+          status: type,
+          declineDate: decisionDate,
+          declinedWork: pricedGroups.map(g => ({
+            repairName: g.repair_name,
+            parts: g.parts || [],
+            partsCostExGst: g.parts_cost_ex_gst,
+            labourHours: g.labour_hours,
+            labourRate,
+            totalIncGst: g.totalIncGst
+          })),
+          totalIncGst: grandTotalIncGst != null ? Number(grandTotalIncGst) : null
+        })
+      });
+      const apiData = await apiResponse.json().catch(() => ({}));
+      if (!apiResponse.ok || !apiData.success || !apiData.smsText) {
+        throw new Error(apiData.error || `AI follow-up SMS generation failed (${apiResponse.status})`);
+      }
 
-    const apiResponse = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] })
-    });
-    const apiData = await apiResponse.json();
-    const smsResult = { content: apiData.content?.[0]?.text || '' };
-
-    setSms(smsResult);
-    setGenerating(false);
+      setSms(String(apiData.smsText));
+      if (analysisWarning === aiUnavailableMessage) setAnalysisWarning(null);
+    } catch (error) {
+      console.error('Follow-up SMS generation failed:', error);
+      setSms(fallbackText);
+      setAnalysisWarning(aiUnavailableMessage);
+      toast.warning(aiUnavailableMessage);
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const analyse = async () => {

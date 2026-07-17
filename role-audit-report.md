@@ -1,7 +1,7 @@
 # Workshop Flow Role Audit Report
 
-Generated: 2026-06-24T11:30:14.477Z
-Base URL: http://localhost:5173
+Generated: 2026-07-17T02:15:46.805Z
+Base URL: http://127.0.0.1:5173
 
 Mutation note: Workflow actions that create, save, submit, approve, decline, upload, or otherwise change records were not executed because `.env` points to a hosted Supabase project and the audit instructions prohibit updating production data.
 
@@ -72,10 +72,10 @@ Mutation note: Workflow actions that create, save, submit, approve, decline, upl
 - Visible Menu Items: Job History Search, Sign Out
 - Visible Dashboard Widgets: Parts Requests, All, Needs Review, Decisions, History
 - Pages Tested: Dashboard, Job History Search
-- Pages Passed: Dashboard, Job History Search
-- Pages Failed: None
+- Pages Passed: Job History Search
+- Pages Failed: Dashboard (Network errors: 1)
 - Console Errors: 0
-- Network Errors: 0
+- Network Errors: 1
 - API Errors: 0
 - Permission Errors: 0
 - Blank Pages: 0
@@ -83,7 +83,7 @@ Mutation note: Workflow actions that create, save, submit, approve, decline, upl
 
 | Page | URL | Result | Findings | Screenshot |
 | --- | --- | --- | --- | --- |
-| Dashboard | /Dashboard | Pass | - | tests\screenshots\workshop-controller\dashboard.png |
+| Dashboard | /Dashboard | Fail | Network errors: 1 | tests\screenshots\workshop-controller\dashboard.png |
 | Job History Search | /SearchHistory | Pass | - | tests\screenshots\workshop-controller\job-history-search.png |
 
 | Workflow Check | Result | Notes |
@@ -98,12 +98,12 @@ Mutation note: Workflow actions that create, save, submit, approve, decline, upl
 
 - Login Success/Fail: Success
 - Visible Menu Items: Job History Search, Sign Out
-- Visible Dashboard Widgets: Parts Requests, Upsells/Recommendations (19), Vehicle Inspections (16), All, Waiting on Quote, Awaiting WC, Awaiting Decision, Approved, Denied, View
+- Visible Dashboard Widgets: Parts Requests, Upsells/Recommendations (0), Vehicle Inspections (0), All, Waiting on Quote, Awaiting WC, Awaiting Decision, Approved, Denied
 - Pages Tested: Dashboard, Job History Search
-- Pages Passed: Dashboard, Job History Search
-- Pages Failed: None
+- Pages Passed: Job History Search
+- Pages Failed: Dashboard (Network errors: 1)
 - Console Errors: 0
-- Network Errors: 0
+- Network Errors: 1
 - API Errors: 0
 - Permission Errors: 0
 - Blank Pages: 0
@@ -111,7 +111,7 @@ Mutation note: Workflow actions that create, save, submit, approve, decline, upl
 
 | Page | URL | Result | Findings | Screenshot |
 | --- | --- | --- | --- | --- |
-| Dashboard | /Dashboard | Pass | - | tests\screenshots\service-advisor\dashboard.png |
+| Dashboard | /Dashboard | Fail | Network errors: 1 | tests\screenshots\service-advisor\dashboard.png |
 | Job History Search | /SearchHistory | Pass | - | tests\screenshots\service-advisor\job-history-search.png |
 
 | Workflow Check | Result | Notes |
@@ -127,12 +127,12 @@ Mutation note: Workflow actions that create, save, submit, approve, decline, upl
 
 - Login Success/Fail: Success
 - Visible Menu Items: Business Settings, Follow-Up Report, Cleanup Orders, Job History Search, Sign Out
-- Visible Dashboard Widgets: Parts Requests, Upsells/Recommendations (19), Vehicle Inspections (16), All, Active, WC Completed, View
+- Visible Dashboard Widgets: Parts Requests, Upsells/Recommendations (0), Vehicle Inspections (0), All, Active, WC Completed
 - Pages Tested: Dashboard, Business Settings, Follow-Up Report, Cleanup Orders, Job History Search
-- Pages Passed: Dashboard, Business Settings, Follow-Up Report, Cleanup Orders, Job History Search
-- Pages Failed: None
+- Pages Passed: Business Settings, Follow-Up Report, Cleanup Orders, Job History Search
+- Pages Failed: Dashboard (Network errors: 2)
 - Console Errors: 0
-- Network Errors: 0
+- Network Errors: 2
 - API Errors: 0
 - Permission Errors: 0
 - Blank Pages: 0
@@ -140,7 +140,7 @@ Mutation note: Workflow actions that create, save, submit, approve, decline, upl
 
 | Page | URL | Result | Findings | Screenshot |
 | --- | --- | --- | --- | --- |
-| Dashboard | /Dashboard | Pass | - | tests\screenshots\service-manager\dashboard.png |
+| Dashboard | /Dashboard | Fail | Network errors: 2 | tests\screenshots\service-manager\dashboard.png |
 | Business Settings | /BusinessSettings | Pass | - | tests\screenshots\service-manager\business-settings.png |
 | Follow-Up Report | /FollowUpReport | Pass | - | tests\screenshots\service-manager\follow-up-report.png |
 | Cleanup Orders | /CleanupOrders | Pass | - | tests\screenshots\service-manager\cleanup-orders.png |
@@ -158,12 +158,12 @@ Mutation note: Workflow actions that create, save, submit, approve, decline, upl
 
 - Login Success/Fail: Success
 - Visible Menu Items: Business Settings, Follow-Up Report, Cleanup Orders, Statistics Dashboard, User Management, Testing Checklist, Job History Search, Sign Out
-- Visible Dashboard Widgets: Parts Requests, Upsells/Recommendations (19), Vehicle Inspections (16), All, Active, WC Completed, Overview, Technician, Parts, Workshop, Advisor, Manager, View
+- Visible Dashboard Widgets: Parts Requests, Upsells/Recommendations (0), Vehicle Inspections (0), All, Active, WC Completed, Overview, Technician, Parts, Workshop, Advisor, Manager
 - Pages Tested: Dashboard, Business Settings, Follow-Up Report, Cleanup Orders, Statistics Dashboard, User Management, Testing Checklist, Job History Search
-- Pages Passed: Dashboard, Business Settings, Follow-Up Report, Cleanup Orders, Statistics Dashboard, User Management, Testing Checklist, Job History Search
-- Pages Failed: None
+- Pages Passed: Business Settings, Follow-Up Report, Cleanup Orders, Statistics Dashboard, User Management, Testing Checklist, Job History Search
+- Pages Failed: Dashboard (Network errors: 1)
 - Console Errors: 0
-- Network Errors: 0
+- Network Errors: 1
 - API Errors: 0
 - Permission Errors: 0
 - Blank Pages: 0
@@ -171,7 +171,7 @@ Mutation note: Workflow actions that create, save, submit, approve, decline, upl
 
 | Page | URL | Result | Findings | Screenshot |
 | --- | --- | --- | --- | --- |
-| Dashboard | /Dashboard | Pass | - | tests\screenshots\administrator\dashboard.png |
+| Dashboard | /Dashboard | Fail | Network errors: 1 | tests\screenshots\administrator\dashboard.png |
 | Business Settings | /BusinessSettings | Pass | - | tests\screenshots\administrator\business-settings.png |
 | Follow-Up Report | /FollowUpReport | Pass | - | tests\screenshots\administrator\follow-up-report.png |
 | Cleanup Orders | /CleanupOrders | Pass | - | tests\screenshots\administrator\cleanup-orders.png |
@@ -198,8 +198,13 @@ None recorded.
 
 ## MEDIUM PRIORITY ISSUES
 
-- **Technician** - Network error on Dashboard: GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.technician%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
-- **Parts Interpreter** - Network error on Dashboard: GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_role=eq.parts_interpreter&order=created_at.desc&limit=30 net::ERR_ABORTED
+- **Technician** - Network error on Dashboard: GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- **Parts Interpreter** - Network error on Dashboard: GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- **Workshop Controller** - Network error on Dashboard: GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- **Service Advisor** - Network error on Dashboard: GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- **Service Manager** - Network error on Dashboard: GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_role=eq.service_advisor&order=created_at.desc&limit=30 net::ERR_ABORTED
+- **Service Manager** - Network error on Dashboard: GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
+- **Administrator** - Network error on Dashboard: GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
 
 ## LOW PRIORITY ISSUES
 
@@ -207,4 +212,4 @@ None recorded.
 
 ## Single Highest Priority Issue To Fix First
 
-**Technician - Network error on Dashboard:** GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/notifications?select=*&recipient_email=eq.test.technician%40fmgauto.com.au&order=created_at.desc&limit=30 net::ERR_ABORTED
+**Technician - Network error on Dashboard:** GET https://dbvgfevlfneapbqopbzv.supabase.co/rest/v1/parts_requests?select=*&order=created_at.desc&limit=100 net::ERR_ABORTED
