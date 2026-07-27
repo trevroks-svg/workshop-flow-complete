@@ -10,7 +10,9 @@
 
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
 
 const FROM = process.env.FROM_EMAIL || 'Workshop Flow <noreply@yourdomain.com>';
 
@@ -20,6 +22,11 @@ const FROM = process.env.FROM_EMAIL || 'Workshop Flow <noreply@yourdomain.com>';
  * @param {{ to: string, subject: string, body: string }} opts
  */
 export async function sendEmail({ to, subject, body }) {
+  if (!resend) {
+    console.warn(`Email not sent to ${to}: RESEND_API_KEY is not configured`);
+    return { skipped: true, error: 'Email is not configured' };
+  }
+
   const { error } = await resend.emails.send({
     from: FROM,
     to,
