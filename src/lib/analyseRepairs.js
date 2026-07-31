@@ -8,6 +8,7 @@
 
 import { entities } from '@/api/entities';
 import { extractPdfTextFromUrl } from '@/lib/extractPdfText';
+import { createSignedFileUrl } from '@/api/storage';
 import { parseQuoteText } from '@/lib/quoteParser';
 
 const PART_LABELS = {
@@ -62,7 +63,8 @@ async function recoverQuotePdfText(request) {
   }
 
   try {
-    const quotePdfText = await extractPdfTextFromUrl(hydratedRequest.quote_pdf_url);
+    const quotePdfUrl = await createSignedFileUrl(hydratedRequest.quote_pdf_url);
+    const quotePdfText = await extractPdfTextFromUrl(quotePdfUrl);
     if (!quotePdfText) return hydratedRequest;
 
     const quotePdfExtractedAt = new Date().toISOString();

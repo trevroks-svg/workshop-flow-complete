@@ -201,8 +201,8 @@ async function cleanupAuditData(supabase, state) {
     const marker = '/storage/v1/object/public/workshop-photos/';
     const objectPath = target.quotePdfUrl.includes(marker)
       ? decodeURIComponent(target.quotePdfUrl.split(marker)[1].split('?')[0])
-      : null;
-    if (objectPath?.startsWith('quote-pdfs/')) {
+      : target.quotePdfUrl;
+    if (objectPath?.includes('/quote-pdfs/')) {
       const { error } = await supabase.storage.from('workshop-photos').remove([objectPath]);
       results.push({ table: 'storage:workshop-photos', id: objectPath, cleaned: !error, error: error?.message || null });
     }

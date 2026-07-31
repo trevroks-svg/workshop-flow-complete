@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { Image as ImageIcon, Download, Trash2, Copy, Loader2, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import PhotoUploader from "./PhotoUploader";
+import { createSignedFileUrl, deleteFile } from '@/api/storage';
+import { useSignedStorageUrls } from '@/hooks/useSignedStorageUrls';
 
 export default function PhotoGallery({ request, user }) {
   const queryClient = useQueryClient();
@@ -28,6 +30,7 @@ export default function PhotoGallery({ request, user }) {
   });
 
   const staffRole = user?.staff_role || 'technician';
+  const { data: signedPhotoUrls = [] } = useSignedStorageUrls(photos.map(photo => photo.photo_url));
 
   // Determine permissions
   const canUpload = ['technician', 'service_manager', 'admin'].includes(staffRole) &&
@@ -47,6 +50,9 @@ export default function PhotoGallery({ request, user }) {
 
   const deleteMutation = useMutation({
     mutationFn: async ({ photoId, reason }) => {
+      if (photoToDelete?.photo_url) {
+        await deleteFile(photoToDelete.photo_url);
+      }
       await entities.QuoteRequestPhoto.delete(photoId);
 
       // Log to audit
@@ -89,8 +95,13 @@ export default function PhotoGallery({ request, user }) {
     });
   };
 
-  const handleDownload = (photo) => {
-    window.open(photo.photo_url, '_blank');
+  const handleDownload = async (photo) => {
+    try {
+      const signedUrl = await createSignedFileUrl(photo.photo_url);
+      window.open(signedUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      toast.error(error.message || 'Could not open photo');
+    }
   };
 
   const handleCopyPhotoList = () => {
@@ -167,14 +178,21 @@ export default function PhotoGallery({ request, user }) {
             }
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {photos.map((photo) =>
+                {photos.map((photo, index) =>
               <div key={photo.id} className="bg-slate-50 rounded-lg p-3 space-y-2">
                     <div className="aspect-video bg-slate-200 rounded overflow-hidden">
-                      <img
-                    src={photo.photo_url}
-                    alt={photo.caption || 'Quote photo'}
-                    className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                    onClick={() => window.open(photo.photo_url, '_blank')} />
+                      {signedPhotoUrls[index] ? (
+                        <img
+                          src={signedPhotoUrls[index]}
+                          alt={photo.caption || 'Quote photo'}
+                          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => handleDownload(photo)}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                        </div>
+                      )}
 
                     </div>
                     {photo.caption &&

@@ -1,4 +1,5 @@
 import { uploadFile } from '@/api/storage';
+import { entities } from '@/api/entities';
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -56,9 +57,9 @@ export default function PhotoUploader({ requestId, user, onPhotoAdded }) {
 
     setIsUploading(true);
     try {
-      const file_url = await uploadFile(selectedFile, 'request-photos');
+      const objectPath = await uploadFile(selectedFile, 'request-photos');
       await uploadPhotoMutation.mutateAsync({
-        photoUrl: file_url,
+        photoUrl: objectPath,
         caption: caption.trim()
       });
     } catch (error) {

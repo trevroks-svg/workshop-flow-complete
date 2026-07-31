@@ -1,14 +1,14 @@
-import { uploadFile } from '@/api/storage';
+import { createSignedFileUrl, deleteFile, uploadFile } from '@/api/storage';
 import React, { useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Camera, X, Loader2, ImagePlus } from 'lucide-react';
+import { X, Loader2, ImagePlus } from 'lucide-react';
 import { toast } from 'sonner';
 
 /**
  * Manages a list of pre-uploaded photos with optional captions.
  * Each photo is uploaded to storage immediately on selection.
- * photos state shape: [{ url, caption, uploading }]
+ * photos state shape: [{ url: objectPath, previewUrl, caption, uploading }]
  */
 export default function RequestPhotoUploader({ photos, onChange }) {
   const fileInputRef = useRef(null);
@@ -28,8 +28,9 @@ export default function RequestPhotoUploader({ photos, onChange }) {
     const uploaded = await Promise.all(
       files.map(async (file, i) => {
         try {
-          const file_url = await uploadFile(file, 'request-photos');
-          return { url: file_url, caption: '', uploading: false };
+          const objectPath = await uploadFile(file, 'request-photos');
+          const previewUrl = await createSignedFileUrl(objectPath);
+          return { url: objectPath, previewUrl, caption: '', uploading: false };
         } catch {
           toast.error(`Failed to upload ${file.name}`);
           return null;
@@ -56,7 +57,16 @@ export default function RequestPhotoUploader({ photos, onChange }) {
     onChange(photos.map((p, i) => i === index ? { ...p, caption } : p));
   };
 
-  const removePhoto = (index) => {
+  const removePhoto = async (index) => {
+    const photo = photos[index];
+    if (photo?.url) {
+      try {
+        await deleteFile(photo.url);
+      } catch {
+        toast.error('Failed to remove uploaded photo');
+        return;
+      }
+    }
     onChange(photos.filter((_, i) => i !== index));
   };
 
@@ -70,7 +80,7 @@ export default function RequestPhotoUploader({ photos, onChange }) {
             </div>
           ) : (
             <img
-              src={photo.url}
+              src={photo.previewUrl}
               alt={`Photo ${index + 1}`}
               className="w-16 h-16 object-cover rounded-lg shrink-0 border border-slate-200"
             />

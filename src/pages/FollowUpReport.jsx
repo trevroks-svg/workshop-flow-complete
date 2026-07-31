@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/dateUtils";
 import { analyseRepairs } from "@/lib/analyseRepairs";
+import PrivateStorageLink from "@/components/PrivateStorageLink";
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
@@ -192,11 +193,11 @@ function SMSRow({ request, user, labourRate, onFollowUpDone }) {
                 <Badge className="bg-amber-100 text-amber-700 border-0">No Response</Badge>
               )}
               {request.quote_pdf_url && (
-                <a href={request.quote_pdf_url} target="_blank" rel="noopener noreferrer">
+                <PrivateStorageLink objectPath={request.quote_pdf_url}>
                   <Badge className="bg-blue-100 text-blue-700 border-0 gap-1 cursor-pointer hover:bg-blue-200">
                     <FileText className="h-3 w-3" /> PDF Quote
                   </Badge>
-                </a>
+                </PrivateStorageLink>
               )}
             </div>
             <div className="text-sm text-slate-600 space-y-0.5">

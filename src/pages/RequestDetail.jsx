@@ -46,6 +46,7 @@ import LabourLineAnalyser from "../components/labour/LabourLineAnalyser";
 import LabourSummaryPanel from "../components/labour/LabourSummaryPanel";
 import PartsETASelector from "../components/parts/PartsETASelector";
 import PhotoGallery from "../components/photos/PhotoGallery";
+import PrivateStorageLink from "../components/PrivateStorageLink";
 import InspectionCard from "../components/inspection/InspectionCard";
 import CustomerDecisionDialog from "../components/CustomerDecisionDialog";
 import PartsInterpreterNotesEditor from "../components/PartsInterpreterNotesEditor";
@@ -186,13 +187,13 @@ export default function RequestDetail() {
         console.warn("Quote PDF text extraction failed:", error);
       }
 
-      const file_url = await uploadFile(uploadPdfFile, 'quote-pdfs');
+      const objectPath = await uploadFile(uploadPdfFile, 'quote-pdfs');
       const quotePdfExtractedAt = quotePdfText ? new Date().toISOString() : null;
 
       await updateStatusMutation.mutateAsync({
         newStatus: "quoted",
         additionalData: {
-          quote_pdf_url: file_url,
+          quote_pdf_url: objectPath,
           ...(quotePdfText ? {
             quote_pdf_text: quotePdfText,
             quote_pdf_extracted_at: quotePdfExtractedAt
@@ -542,16 +543,14 @@ export default function RequestDetail() {
                 <div>
                   <p className="font-medium text-slate-900">Quote PDF</p>
                 </div>
-                <a
-                  href={request.quote_pdf_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <PrivateStorageLink
+                  objectPath={request.quote_pdf_url}
                   className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors"
                 >
                   <Download className="h-5 w-5" />
                   View PDF
                   <ExternalLink className="h-4 w-4" />
-                </a>
+                </PrivateStorageLink>
               </div>
             </CardContent>
           </Card>

@@ -1,26 +1,26 @@
 import { uploadFile } from '@/api/storage';
 import React, { useState } from 'react';
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Camera, X, Loader2, Image } from "lucide-react";
 import { toast } from "sonner";
+import { useSignedStorageUrls } from '@/hooks/useSignedStorageUrls';
 
 export default function InspectionPhotoUploader({ photos = [], onChange, readonly = false }) {
   const [uploading, setUploading] = useState(false);
+  const { data: signedUrls = [] } = useSignedStorageUrls(photos);
 
   const handleFileChange = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
     setUploading(true);
     try {
-      const urls = await Promise.all(
+      const objectPaths = await Promise.all(
         files.map(async (file) => {
-          const file_url = await uploadFile(file, 'inspection-photos');
-          return file_url;
+          return uploadFile(file, 'inspection-photos');
         })
       );
-      onChange([...photos, ...urls]);
-      toast.success(`${urls.length} photo(s) uploaded`);
+      onChange([...photos, ...objectPaths]);
+      toast.success(`${objectPaths.length} photo(s) uploaded`);
     } catch (err) {
       toast.error("Failed to upload photo");
     } finally {
@@ -48,9 +48,15 @@ export default function InspectionPhotoUploader({ photos = [], onChange, readonl
         )}
         {photos.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-            {photos.map((url, idx) => (
-              <div key={idx} className="relative group rounded-xl overflow-hidden aspect-square bg-slate-100">
-                <img src={url} alt={`Inspection photo ${idx + 1}`} className="w-full h-full object-cover" />
+            {photos.map((objectPath, idx) => (
+              <div key={objectPath || idx} className="relative group rounded-xl overflow-hidden aspect-square bg-slate-100">
+                {signedUrls[idx] ? (
+                  <img src={signedUrls[idx]} alt={`Inspection photo ${idx + 1}`} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                  </div>
+                )}
                 {!readonly && (
                   <button
                     type="button"
