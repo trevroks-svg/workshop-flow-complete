@@ -5,6 +5,7 @@
  * This bypasses RLS — only use it on the server, never expose it to the browser.
  */
 
+import './env.js';
 import { createClient } from '@supabase/supabase-js';
 
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
