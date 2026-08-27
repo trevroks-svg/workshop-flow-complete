@@ -219,13 +219,20 @@ STRICT RULES:
 Generate the SMS now:`;
 
     try {
-      const apiResponse = await fetch('https://api.anthropic.com/v1/messages', {
+      const apiResponse = await fetch('/api/ai/generate-workshop-text', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] })
+        body: JSON.stringify({
+          type: 'sms',
+          customerName: custName,
+          vehicle,
+          variant: smsVariant,
+          repairLines,
+          totalIncGst: grandTotalIncGst == null ? null : Number(grandTotalIncGst)
+        })
       });
       if (!apiResponse.ok) throw new Error(`AI SMS generation failed (${apiResponse.status})`);
       const apiData = await apiResponse.json();
-      const generatedSms = apiData.content?.[0]?.text?.trim() || buildFallbackSms(groupsToUse);
+      const generatedSms = apiData.text?.trim() || buildFallbackSms(groupsToUse);
       setSmsDraft(generatedSms);
 
       await updateMutation.mutateAsync({
