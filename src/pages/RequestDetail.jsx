@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { uploadFile } from "@/api/storage";
 import { extractPdfText } from "@/lib/extractPdfText";
+import { parseQuoteText } from "@/lib/quoteParser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -189,6 +190,13 @@ export default function RequestDetail() {
 
       const objectPath = await uploadFile(uploadPdfFile, 'quote-pdfs');
       const quotePdfExtractedAt = quotePdfText ? new Date().toISOString() : null;
+      const parsedQuote = quotePdfText ? parseQuoteText(quotePdfText) : null;
+      const validatedPricing = parsedQuote?.success ? {
+        quote_total: parsedQuote.result.quote_total_inc_gst,
+        parts_total_inc_gst: parsedQuote.result.quote_total_inc_gst,
+        parts_total_ex_gst: parsedQuote.result.parts_total_ex_gst ??
+          parsedQuote.result.groups.reduce((sum, group) => sum + group.parts_cost_ex_gst, 0)
+      } : {};
 
       await updateStatusMutation.mutateAsync({
         newStatus: "quoted",
@@ -198,6 +206,7 @@ export default function RequestDetail() {
             quote_pdf_text: quotePdfText,
             quote_pdf_extracted_at: quotePdfExtractedAt
           } : {}),
+          ...validatedPricing,
           parts_interpreter_email: user.email
         },
         notificationType: "quote_returned",

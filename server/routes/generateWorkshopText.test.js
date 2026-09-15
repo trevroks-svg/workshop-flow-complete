@@ -27,6 +27,30 @@ test('generates SMS text through OpenAI', async () => {
   assert.match(buildPrompt({ type: 'sms', repairLines: '- Air Filter', totalIncGst: 20.35 }), /reply YES/i);
 });
 
+test('includes completed structured pricing in the SMS prompt', () => {
+  const prompt = buildPrompt({
+    type: 'sms',
+    variant: 'standard',
+    repairLines: '- We recommend Battery: $364.29 inc GST',
+    repairs: [{
+      repairDescription: 'Battery',
+      partsCostExGst: 309.17,
+      labourHours: 0.2,
+      labourRateExGst: 110,
+      labourTotalExGst: 22,
+      repairTotalExGst: 331.17,
+      gst: 33.12,
+      totalIncGst: 364.29,
+    }],
+    totalIncGst: 364.29,
+  });
+
+  assert.match(prompt, /"partsCostExGst":309\.17/);
+  assert.match(prompt, /"labourTotalExGst":22/);
+  assert.match(prompt, /"totalIncGst":364\.29/);
+  assert.match(prompt, /do not recalculate/i);
+});
+
 test('generates recommendation text through OpenAI', async () => {
   const response = await callRoute({ type: 'recommendation', repairLines: 'Repair: Air Filter' });
   assert.equal(response.status, 200);

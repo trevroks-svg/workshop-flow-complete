@@ -352,8 +352,23 @@ function buildAnalysisResult(result, request, hasPdfText) {
     pdfReadable: hasPdfText ? (result.pdf_was_readable ?? true) : false,
     notesUsed: result.notes_used_for_pricing ?? false,
     lineItems: result.line_items || [],
-    quoteTotalIncGst: result.quote_total_inc_gst ?? null
+    quoteTotalIncGst: result.quote_total_inc_gst ?? null,
+    partsTotalExGst: result.parts_total_ex_gst ?? null,
+    gst: result.gst ?? null,
+    deterministicPricing: false
   };
+}
+
+async function persistValidatedQuotePricing(request, result) {
+  if (!request.id || result.quote_total_inc_gst == null) return;
+  const partsTotalExGst = result.parts_total_ex_gst ??
+    (result.groups || []).reduce((sum, group) => sum + Number(group.parts_cost_ex_gst || 0), 0);
+
+  await entities.PartsRequest.update(request.id, {
+    quote_total: result.quote_total_inc_gst,
+    parts_total_inc_gst: result.quote_total_inc_gst,
+    parts_total_ex_gst: partsTotalExGst
+  });
 }
 
 /**
@@ -367,7 +382,15 @@ export async function analyseRepairs(request, partsText) {
   const rulesAnalysis = parseQuoteText(requestForAnalysis.quote_pdf_text);
 
   if (rulesAnalysis.success) {
-    return buildAnalysisResult(rulesAnalysis.result, requestForAnalysis, hasPdfText);
+    try {
+      await persistValidatedQuotePricing(requestForAnalysis, rulesAnalysis.result);
+    } catch (error) {
+      console.warn('Could not save validated quote pricing:', error);
+    }
+    return {
+      ...buildAnalysisResult(rulesAnalysis.result, requestForAnalysis, hasPdfText),
+      deterministicPricing: true
+    };
   }
 
   try {

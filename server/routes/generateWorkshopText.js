@@ -40,11 +40,14 @@ STRICT RULES:
     : variant === 'detailed'
       ? 'Include every repair and individual price; up to 320 characters is acceptable.'
       : 'Use a clear standard length and list every repair with its individual price.';
+  const structuredPricing = Array.isArray(payload.repairs) && payload.repairs.length
+    ? `\nSTRUCTURED PRICING (amounts are already calculated; do not recalculate):\n${JSON.stringify(payload.repairs)}`
+    : '';
 
   return `Generate an SMS for an Australian car dealership service advisor requesting customer approval.
 
 REPAIRS:
-${payload.repairLines}
+${payload.repairLines}${structuredPricing}
 TOTAL INC GST: ${payload.totalIncGst == null ? 'price TBC' : `$${Number(payload.totalIncGst).toFixed(2)}`}
 STYLE: ${variant}
 

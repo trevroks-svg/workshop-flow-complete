@@ -38,14 +38,24 @@ const getValidPartsTotal = (value) => {
   return Number.isFinite(total) && total > 0 ? total : null;
 };
 
-const getGroupPricing = (group, request, groups, labourRate, gst) => {
+const getGroupPricing = (group, request, groups, labourRate, gst, manualPartsTotal = null) => {
   if (!hasKnownLabour(group)) return null;
 
   const labourIncGst = group.labour_hours * labourRate * gst;
+  if (groups.length === 1 && manualPartsTotal != null) {
+    return {
+      partsIncGst: manualPartsTotal,
+      partsCostExGst: manualPartsTotal / gst,
+      labourIncGst,
+      totalIncGst: manualPartsTotal + labourIncGst,
+      source: 'manual_override'
+    };
+  }
   if (group.parts_cost_ex_gst != null) {
     const partsIncGst = group.parts_cost_ex_gst * gst;
     return {
       partsIncGst,
+      partsCostExGst: group.parts_cost_ex_gst,
       labourIncGst,
       totalIncGst: partsIncGst + labourIncGst,
       source: 'parts_ex_gst'
@@ -57,6 +67,7 @@ const getGroupPricing = (group, request, groups, labourRate, gst) => {
 
   return {
     partsIncGst: quoteTotalIncGst,
+    partsCostExGst: quoteTotalIncGst / gst,
     labourIncGst,
     totalIncGst: quoteTotalIncGst + labourIncGst,
     source: 'quote_total'
@@ -78,8 +89,11 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
   const [customerName, setCustomerName] = useState(request.customer_name || "");
   const [vehicleType, setVehicleType] = useState(request.vehicle_type || request.vehicle_details || "");
   const [partsTotalIncGst, setPartsTotalIncGst] = useState(
-    request.quote_total != null ? String(request.quote_total) : ""
+    request.parts_total_inc_gst != null
+      ? String(request.parts_total_inc_gst)
+      : request.quote_total != null ? String(request.quote_total) : ""
   );
+  const [partsTotalOverridden, setPartsTotalOverridden] = useState(false);
   const [smsVariant, setSmsVariant] = useState(request.advisor_sms_variant || "standard");
   const [smsDraft, setSmsDraft] = useState(request.advisor_sms_draft || "");
 
@@ -91,11 +105,17 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
   const [analysisWarning, setAnalysisWarning] = useState(null);
 
   const labourRate = labourRateProp || request.labour_rate_ex_gst || 110;
+  const gstMultiplier = 1 + (Number(request.gst_percent ?? 10) / 100);
   const validPartsTotal = getValidPartsTotal(partsTotalIncGst);
   const pricingRequest = {
     ...request,
     quote_total: validPartsTotal ?? request.quote_total
   };
+  const pricingUpdate = validPartsTotal != null ? {
+    quote_total: validPartsTotal,
+    parts_total_inc_gst: validPartsTotal,
+    parts_total_ex_gst: Number((validPartsTotal / gstMultiplier).toFixed(2))
+  } : {};
 
   const updateMutation = useMutation({
     mutationFn: (data) => entities.PartsRequest.update(request.id, data),
@@ -119,7 +139,7 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
     setAnalysing(true);
     setAnalysisWarning(null);
     const partsText = getPartsText(request.parts);
-    const { groups: initialised, pdfReadable, notesUsed } = await analyseRepairs(request, partsText);
+    const { groups: initialised, pdfReadable, notesUsed, quoteTotalIncGst, deterministicPricing } = await analyseRepairs(request, partsText);
     const mergedGroups = mergeRelatedRepairGroups(initialised);
     const groupsWithSelectedLabour = applyWorkshopControllerLabour(mergedGroups, request);
 
@@ -128,6 +148,9 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
     }
 
     setGroups(groupsWithSelectedLabour);
+    if (deterministicPricing && quoteTotalIncGst != null && !partsTotalOverridden) {
+      setPartsTotalIncGst(String(quoteTotalIncGst));
+    }
     setShowGroups(true);
     setAnalysing(false);
     return groupsWithSelectedLabour;
@@ -135,17 +158,19 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
 
   // Step 2: Generate SMS from groups with line-by-line repair breakdown
   const buildFallbackSms = (groupsToUse) => {
-    const gst = 1.1;
+    const gst = gstMultiplier;
     const custName = customerName.trim();
     const vehicle = vehicleType.trim();
     const greeting = custName ? `Hi ${custName},` : "Hi there,";
     const vehicleMention = vehicle ? `for your ${vehicle}` : "";
     const lines = groupsToUse.map(g => {
-      const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst);
+      const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst,
+        partsTotalOverridden ? validPartsTotal : null);
       if (!pricing) return `${g.repair_name}: price TBC`;
       return `${g.repair_name}: $${pricing.totalIncGst.toFixed(2)} inc GST`;
     });
-    const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst));
+    const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst,
+      partsTotalOverridden ? validPartsTotal : null));
     const allPricesKnown = groupPrices.length > 0 && groupPrices.every(Boolean);
     const pricedTotal = allPricesKnown
       ? groupPrices.reduce((sum, pricing) => sum + pricing.totalIncGst, 0)
@@ -163,7 +188,7 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
   // Step 2: Generate SMS from groups with line-by-line repair breakdown
   const generateSms = async (groupsToUse) => {
     setGenerating(true);
-    const gst = 1.1;
+    const gst = gstMultiplier;
     const custName = customerName.trim();
     const vehicle = vehicleType.trim();
     const greeting = custName ? `Hi ${custName},` : "Hi there,";
@@ -171,7 +196,8 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
 
     // Build per-repair lines for the prompt
     const repairLines = groupsToUse.map(g => {
-      const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst);
+      const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst,
+        partsTotalOverridden ? validPartsTotal : null);
       if (!pricing) return `- We recommend ${g.repair_name}: price TBC`;
 
       const partsText = pricing.source === 'parts_ex_gst'
@@ -180,11 +206,36 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
       return `- We recommend ${g.repair_name}: $${pricing.totalIncGst.toFixed(2)} inc GST (${partsText}, labour ${g.labour_hours}h @ $${labourRate}/hr ex GST)`;
     }).join('\n');
 
-    const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst));
+    const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst,
+      partsTotalOverridden ? validPartsTotal : null));
     const allPricesKnown = groupPrices.length > 0 && groupPrices.every(Boolean);
     const grandTotalIncGst = allPricesKnown
       ? groupPrices.reduce((sum, pricing) => sum + pricing.totalIncGst, 0).toFixed(2)
       : null;
+    const structuredRepairs = groupsToUse.map((group, index) => {
+      const pricing = groupPrices[index];
+      if (!pricing) return {
+        repairDescription: group.repair_name,
+        partsCostExGst: null,
+        labourHours: group.labour_hours,
+        labourRateExGst: labourRate,
+        labourTotalExGst: group.labour_hours == null ? null : group.labour_hours * labourRate,
+        totalIncGst: null
+      };
+      const labourTotalExGst = group.labour_hours * labourRate;
+      const repairTotalExGst = pricing.partsCostExGst + labourTotalExGst;
+      return {
+        repairDescription: group.repair_name,
+        partsCostExGst: Number(pricing.partsCostExGst.toFixed(2)),
+        partsTotalIncGst: Number(pricing.partsIncGst.toFixed(2)),
+        labourHours: group.labour_hours,
+        labourRateExGst: labourRate,
+        labourTotalExGst: Number(labourTotalExGst.toFixed(2)),
+        repairTotalExGst: Number(repairTotalExGst.toFixed(2)),
+        gst: Number((pricing.totalIncGst - repairTotalExGst).toFixed(2)),
+        totalIncGst: Number(pricing.totalIncGst.toFixed(2))
+      };
+    });
 
     let variantInstructions = "";
     if (smsVariant === "short") {
@@ -227,6 +278,7 @@ Generate the SMS now:`;
           vehicle,
           variant: smsVariant,
           repairLines,
+          repairs: structuredRepairs,
           totalIncGst: grandTotalIncGst == null ? null : Number(grandTotalIncGst)
         })
       });
@@ -238,7 +290,7 @@ Generate the SMS now:`;
       await updateMutation.mutateAsync({
         customer_name: customerName,
         vehicle_type: vehicleType,
-        ...(validPartsTotal != null ? { quote_total: validPartsTotal } : {}),
+        ...pricingUpdate,
         advisor_sms_draft: generatedSms,
         advisor_sms_variant: smsVariant,
         advisor_sms_generated_at: new Date().toISOString()
@@ -252,7 +304,7 @@ Generate the SMS now:`;
       await updateMutation.mutateAsync({
         customer_name: customerName,
         vehicle_type: vehicleType,
-        ...(validPartsTotal != null ? { quote_total: validPartsTotal } : {}),
+        ...pricingUpdate,
         advisor_sms_draft: fallbackSms,
         advisor_sms_variant: smsVariant,
         advisor_sms_generated_at: new Date().toISOString()
@@ -299,7 +351,7 @@ Generate the SMS now:`;
     await updateMutation.mutateAsync({
       customer_name: customerName,
       vehicle_type: vehicleType,
-      ...(validPartsTotal != null ? { quote_total: validPartsTotal } : {}),
+      ...pricingUpdate,
       advisor_sms_draft: smsDraft
     });
     toast.success("Draft saved");
@@ -349,7 +401,10 @@ Generate the SMS now:`;
               min="0"
               step="0.01"
               value={partsTotalIncGst}
-              onChange={(e) => setPartsTotalIncGst(e.target.value)}
+              onChange={(e) => {
+                setPartsTotalIncGst(e.target.value);
+                setPartsTotalOverridden(true);
+              }}
               placeholder="e.g. 165.00"
               className="mt-1.5"
             />
@@ -410,8 +465,9 @@ Generate the SMS now:`;
                 {groups.map((g, i) => {
                   const labourHours = g.labour_hours ?? 0;
                   const labourExGst = labourHours * labourRate;
-                  const partsIncGst = g.parts_cost_ex_gst != null ? g.parts_cost_ex_gst * 1.1 : null;
-                  const pricing = getGroupPricing(g, pricingRequest, groups, labourRate, 1.1);
+                  const partsIncGst = g.parts_cost_ex_gst != null ? g.parts_cost_ex_gst * gstMultiplier : null;
+                  const pricing = getGroupPricing(g, pricingRequest, groups, labourRate, gstMultiplier,
+                    partsTotalOverridden ? validPartsTotal : null);
                   const totalIncGst = pricing?.totalIncGst ?? null;
 
                   return (
