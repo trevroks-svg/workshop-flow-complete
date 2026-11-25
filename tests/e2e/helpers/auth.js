@@ -31,7 +31,9 @@ export async function loginAs(page, user) {
   await page.goto('/login');
   await page.getByLabel('Email').fill(user.email);
   await page.getByLabel('Password').fill(TEST_PASSWORD);
-  await page.getByRole('button', { name: /sign in/i }).click();
+  // Exact match: the login page also has a "Sign in with Google" button,
+  // and the loose /sign in/i pattern matches both (strict mode violation).
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: /parts requests/i })).toBeVisible();
   await expect(page.getByText(new RegExp(`Logged in as\\s+${user.label}`, 'i'))).toBeVisible();
@@ -48,11 +50,20 @@ export async function logout(page) {
     await page.getByRole('menuitem', { name: /sign out/i }).click({ timeout: 5_000 });
     await expect(page).toHaveURL(/\/(login|landing|$)/);
   } catch {
-    await page.evaluate(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-    await page.goto('/login');
+    // The page may already be closed (e.g. after a test timeout) — only
+    // clear storage and navigate when it is still alive, so a logout
+    // failure never masks the real test error.
+    if (!page.isClosed()) {
+      try {
+        await page.evaluate(() => {
+          localStorage.clear();
+          sessionStorage.clear();
+        });
+        await page.goto('/login');
+      } catch {
+        // Page went away mid-cleanup; nothing more to do.
+      }
+    }
   }
 }
 

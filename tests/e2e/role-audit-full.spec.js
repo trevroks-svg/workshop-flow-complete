@@ -155,7 +155,8 @@ async function login(page, user) {
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
   await page.getByLabel('Email').fill(user.email);
   await page.getByLabel('Password').fill(TEST_PASSWORD);
-  await page.getByRole('button', { name: /sign in/i }).click();
+  // Exact match: the login page also has a "Sign in with Google" button.
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
   await expect(page.getByRole('heading', { name: /parts requests/i })).toBeVisible({ timeout: 20_000 });
 }
 
