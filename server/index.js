@@ -19,7 +19,10 @@
  *   OPENAI_ADVISOR_SMS_MODEL      (optional, defaults to gpt-5.4-nano)
  *   OPENAI_RECOMMENDATION_MODEL   (optional, defaults to gpt-5.4-nano)
  *   OPENAI_LABOUR_MODEL           (optional, defaults to gpt-5.4-nano)
- *   CRON_SECRET                 (optional, shared secret for /api/check-overdue-requests)
+ *   CRON_SECRET                 (optional, shared secret for /api/check-overdue-requests and /api/agent-loop/run)
+ *   AGENT_LOOP_ENABLED          (optional, 'true' runs the agent loop on an
+ *                                in-process 5-minute timer; default off — use
+ *                                an external cron hitting /api/agent-loop/run)
  *   CLIENT_URL                  (optional, defaults to http://localhost:5173)
  *   PORT                        (optional, defaults to 3001)
  * See server/.env.example for placeholders.
@@ -40,6 +43,7 @@ import generateFollowUpSms      from './routes/generateFollowUpSms.js';
 import generateAdvisorSms       from './routes/generateAdvisorSms.js';
 import generateRecommendation   from './routes/generateRecommendation.js';
 import analyseLabour            from './routes/analyseLabour.js';
+import runAgentLoop, { getAgentLoopStatus, listAgentLoopDrafts, startAgentLoopTimer } from './routes/agentLoop.js';
 import { importJobSchedule, matchJobSchedule, jobScheduleStatus } from './routes/jobSchedule.js';
 
 const app = express();
@@ -67,9 +71,17 @@ app.post('/api/ai/analyse-labour',           analyseLabour);
 app.post('/api/job-schedule/import',         importJobSchedule);
 app.get('/api/job-schedule/match',           matchJobSchedule);
 app.get('/api/job-schedule/status',          jobScheduleStatus);
+app.post('/api/agent-loop/run',              runAgentLoop);      // call every 5 min from a cron job
+app.get('/api/agent-loop/status',            getAgentLoopStatus);
+app.get('/api/agent-loop/drafts',            listAgentLoopDrafts);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 app.listen(PORT, () => {
   console.log(`Workshop Flow API running on http://localhost:${PORT}`);
+  // Agent loop timer (Phase 2): off by default — set AGENT_LOOP_ENABLED=true
+  // to run the loop inside the server instead of an external cron.
+  if (process.env.AGENT_LOOP_ENABLED === 'true') {
+    startAgentLoopTimer();
+  }
 });
