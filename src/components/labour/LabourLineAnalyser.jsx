@@ -8,6 +8,7 @@ import { Sparkles, Save, Edit2, ChevronDown, ChevronUp, Loader2 } from 'lucide-r
 import { toast } from 'sonner';
 import { PART_TYPES } from '../PartsSelector';
 import { resolveLabourRate } from '@/lib/labourRate';
+import { apiFetch } from '@/lib/apiFetch';
 
 const getPartLabel = (part) => {
   if (part.other_description) return part.other_description;
@@ -75,7 +76,7 @@ Be concise and practical. Use standard flat-rate times. Return ONLY the JSON.`;
     try {
       // AI analysis runs on the server (the API key lives there) — never
       // from the browser. Falls back to local lines if it fails.
-      const apiResponse = await fetch('/api/ai/analyse-labour', {
+      const apiResponse = await apiFetch('/api/ai/analyse-labour', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
       });

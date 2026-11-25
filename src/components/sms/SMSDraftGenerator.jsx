@@ -13,6 +13,8 @@ import { format } from "date-fns";
 import { analyseRepairs, applyWorkshopControllerLabour, mergeRelatedRepairGroups } from "@/lib/analyseRepairs";
 import { resolveLabourRate } from "@/lib/labourRate";
 import { toPlainAscii, SMS_ASCII_RULES } from "@/lib/smsText";
+import { plainPartName, groupsHaveOptions } from "@/lib/plainPartName";
+import { apiFetch } from "@/lib/apiFetch";
 import { scheduleRowToCustomer } from "@/lib/jobSchedule";
 
 const PART_TYPE_LABELS = {
@@ -110,7 +112,7 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
       return;
     }
     let cancelled = false;
-    fetch(`/api/job-schedule/match?jobCard=${encodeURIComponent(jobCard)}`)
+    apiFetch(`/api/job-schedule/match?jobCard=${encodeURIComponent(jobCard)}`)
       .then(res => res.json().catch(() => ({})))
       .then(data => {
         if (cancelled) return;
@@ -189,15 +191,27 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
     const vehicleMention = vehicle ? `for your ${vehicle}` : "";
     const lines = groupsToUse.map(g => {
       const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst);
-      if (!pricing) return `${g.repair_name}: price TBC`;
-      return `${g.repair_name}: $${pricing.totalIncGst.toFixed(2)} inc GST`;
+      const name = plainPartName(g.repair_name, g.part_type);
+      if (!pricing) return `${name}: price TBC`;
+      return `${name}: $${pricing.totalIncGst.toFixed(2)} inc GST`;
     });
     const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst));
     const allPricesKnown = groupPrices.length > 0 && groupPrices.every(Boolean);
-    const pricedTotal = allPricesKnown
-      ? groupPrices.reduce((sum, pricing) => sum + pricing.totalIncGst, 0)
-      : null;
-    const totalLine = pricedTotal != null ? `Total: $${pricedTotal.toFixed(2)} inc GST` : 'Total: price TBC';
+    // Two or more options are alternatives, never a single purchase: the
+    // total lists each option's fitted total and never sums them (B1).
+    let totalLine = 'Total: price TBC';
+    if (allPricesKnown) {
+      const totals = groupPrices.map(pricing => pricing.totalIncGst);
+      if (groupsHaveOptions(groupsToUse)) {
+        const formatted = totals.map(total => `$${total.toFixed(2)} inc GST`);
+        const last = formatted.pop();
+        totalLine = formatted.length
+          ? `Total: ${formatted.join(', ')} or ${last} (choose one option)`
+          : `Total: ${last} (choose one option)`;
+      } else {
+        totalLine = `Total: $${totals.reduce((sum, total) => sum + total, 0).toFixed(2)} inc GST`;
+      }
+    }
     return toPlainAscii([
       `${greeting}${vehicleMention ? ` ${vehicleMention}` : ''}`,
       'We recommend the following work:',
@@ -219,22 +233,36 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
     const greeting = custName ? `Hi ${custName},` : "Hi there,";
     const vehicleMention = vehicle ? `for your ${vehicle}` : "";
 
-    // Build per-repair lines for the prompt
+    // Build per-repair lines for the prompt (plain part names, never
+    // part-code jargon, and the full tyre size)
     const repairLines = groupsToUse.map(g => {
       const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst);
-      if (!pricing) return `- We recommend ${g.repair_name}: price TBC`;
+      const name = plainPartName(g.repair_name, g.part_type);
+      if (!pricing) return `- We recommend ${name}: price TBC`;
 
       const partsText = pricing.source === 'parts_ex_gst'
         ? `parts ex GST: $${g.parts_cost_ex_gst.toFixed(2)}`
         : `parts total: $${pricing.partsIncGst.toFixed(2)} inc GST`;
-      return `- We recommend ${g.repair_name}: $${pricing.totalIncGst.toFixed(2)} inc GST (${partsText}, labour ${g.labour_hours}h @ $${labourRate}/hr inc GST)`;
+      return `- We recommend ${name}: $${pricing.totalIncGst.toFixed(2)} inc GST (${partsText}, labour ${g.labour_hours}h @ $${labourRate}/hr inc GST)`;
     }).join('\n');
 
     const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst));
     const allPricesKnown = groupPrices.length > 0 && groupPrices.every(Boolean);
-    const grandTotalIncGst = allPricesKnown
-      ? groupPrices.reduce((sum, pricing) => sum + pricing.totalIncGst, 0).toFixed(2)
-      : null;
+    // Two or more options are alternatives: give both totals with "or"
+    // between them, never a summed total.
+    let grandTotalText = 'price TBC';
+    if (allPricesKnown) {
+      const totals = groupPrices.map(pricing => pricing.totalIncGst);
+      if (groupsHaveOptions(groupsToUse)) {
+        const formatted = totals.map(total => `$${total.toFixed(2)}`);
+        const last = formatted.pop();
+        grandTotalText = formatted.length
+          ? `${formatted.join(', ')} or ${last} (choose one option)`
+          : `${last} (choose one option)`;
+      } else {
+        grandTotalText = `$${totals.reduce((sum, total) => sum + total, 0).toFixed(2)}`;
+      }
+    }
 
     let variantInstructions = "";
     if (smsVariant === "short") {
@@ -251,7 +279,7 @@ CUSTOMER NAME: ${custName || "(not provided)"}
 VEHICLE: ${vehicle || "(not specified)"}
 REPAIRS REQUIRED (line by line):
 ${repairLines}
-TOTAL INC GST: ${grandTotalIncGst ? `$${grandTotalIncGst}` : 'price TBC'}
+TOTAL INC GST: ${grandTotalText}
 
 STYLE: ${smsVariant.toUpperCase()}
 ${variantInstructions}
@@ -261,7 +289,7 @@ STRICT RULES:
 1. Start with: "${greeting}${vehicleMention ? ` ${vehicleMention}` : ''}"
 2. Use friendly advisor language such as "we recommend" or "we've found".
 3. List EACH repair job on its own line with its price (e.g. "We recommend Front Brake Service: $330.00")
-4. Include a TOTAL line. If total is not supplied above, write exactly: "Total: price TBC"
+4. Include a TOTAL line. If total is not supplied above, write exactly: "Total: price TBC". If two options are listed, the TOTAL line must give both totals with "or" between them (choose one option) - never add the two option prices together.
 5. MUST end with: "Please reply YES to approve or NO to decline. Fleurieu Motor Group Service 08 8552 1255"
 6. Professional, warm, clear, concise Australian dealership tone
 7. Never invent or estimate missing prices. Output ONLY the SMS text, nothing else
@@ -273,7 +301,7 @@ Generate the SMS now:`;
     try {
       // AI generation runs on the server (the API key lives there) — never
       // from the browser. Falls back to a local draft if it fails.
-      const apiResponse = await fetch('/api/ai/generate-advisor-sms', {
+      const apiResponse = await apiFetch('/api/ai/generate-advisor-sms', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
       });

@@ -28,11 +28,12 @@
  * re-run never drafts the same upsell twice.
  */
 
-import { parseQuoteText } from './quoteParser.js';
+import { parseQuoteText, parseNotePrices } from './quoteParser.js';
 import { checkPdfMatchesJob } from './pdfJobMatch.js';
 import { applyTyreSetOfFourRule } from './tyreRule.js';
 import { resolveLabourRate, DEFAULT_LABOUR_RATE_INC_GST } from './labourRate.js';
 import { scheduleRowToCustomer } from './jobSchedule.js';
+import { groupFamily, groupsHaveOptions } from './plainPartName.js';
 import { buildSmsDraft, buildRecommendationText, getGroupPricing, groupsWithLabour } from './draftText.js';
 
 export const AGENT_LOOP_TIMEZONE = 'Australia/Adelaide';
@@ -105,49 +106,112 @@ export function seenKey(request) {
 }
 
 /**
+ * For 'other' parts the PDF line is a part code (GARNISH ASSY-FRT DR SIDE)
+ * while the request carries the plain description the technician typed
+ * ("Front passenger door side skirt"). Use the request's description for
+ * the draft when there is exactly one 'other' part to match it to.
+ */
+function useRequestPartDescriptions(groups, request) {
+  const otherParts = (request?.parts || []).filter(
+    (part) => part.part_type === 'other' && String(part.other_description || '').trim()
+  );
+  if (otherParts.length !== 1) return groups;
+  const description = otherParts[0].other_description.trim();
+  return (groups || []).map((group) =>
+    groupFamily(group) === 'other' ? { ...group, repair_name: description } : group
+  );
+}
+
+/**
  * Analyse a request with the rules-based quote parser (no AI).
- * Returns { ok, groups, lineItems, quoteTotalIncGst, pdfJobMatch } or
- * { ok: false, reason, pdfJobMatch? }.
+ * Returns { ok, groups, lineItems, quoteTotalIncGst, pdfJobMatch,
+ * priceSource, gstBasis } or { ok: false, reason, pdfJobMatch? }.
+ *
+ * Quote sources, in order: the quote PDF, then the parts interpreter's
+ * note (break B3 - a blank PDF with a note price still drafts, and the
+ * draft flags carry the provenance: priceSource 'parts_note',
+ * gstBasisUnconfirmed true). The PDF-vs-job check still runs on the
+ * note path: a PDF showing a different job card is a mismatch even when
+ * the price comes from the note.
  */
 export function analyseRequestWithRules(request) {
   const rules = parseQuoteText(request?.quote_pdf_text);
-  if (!rules.success) {
-    return { ok: false, reason: rules.reason || 'Quote could not be read automatically' };
-  }
+  if (rules.success) {
+    const pdfJobMatch = checkPdfMatchesJob(
+      request,
+      request.quote_pdf_text,
+      rules.result.line_items
+    );
+    if (pdfJobMatch.status === 'mismatch') {
+      return {
+        ok: false,
+        reason: `Quote PDF does not match this job: ${pdfJobMatch.reason}`,
+        pdfJobMatch,
+      };
+    }
 
-  const pdfJobMatch = checkPdfMatchesJob(
-    request,
-    request.quote_pdf_text,
-    rules.result.line_items
-  );
-  if (pdfJobMatch.status === 'mismatch') {
+    const groups = applyTyreSetOfFourRule(
+      rules.result.groups,
+      rules.result.line_items,
+      request
+    );
+
     return {
-      ok: false,
-      reason: `Quote PDF does not match this job: ${pdfJobMatch.reason}`,
+      ok: true,
+      source: 'rules',
+      confidence: rules.confidence,
+      groups: useRequestPartDescriptions(groups, request),
+      lineItems: rules.result.line_items,
+      quoteTotalIncGst: rules.result.quote_total_inc_gst ?? null,
       pdfJobMatch,
+      priceSource: 'pdf',
+      gstBasis: rules.result.gst_basis || 'labelled',
     };
   }
 
-  const groups = applyTyreSetOfFourRule(
-    rules.result.groups,
-    rules.result.line_items,
-    request
-  );
+  const notePrices = parseNotePrices(request?.parts_interpreter_notes, request);
+  if (notePrices) {
+    const pdfJobMatch = checkPdfMatchesJob(
+      request,
+      request.quote_pdf_text,
+      notePrices.line_items
+    );
+    if (pdfJobMatch.status === 'mismatch') {
+      return {
+        ok: false,
+        reason: `Quote PDF does not match this job: ${pdfJobMatch.reason}`,
+        pdfJobMatch,
+      };
+    }
 
-  return {
-    ok: true,
-    source: 'rules',
-    confidence: rules.confidence,
-    groups,
-    lineItems: rules.result.line_items,
-    quoteTotalIncGst: rules.result.quote_total_inc_gst ?? null,
-    pdfJobMatch,
-  };
+    const groups = applyTyreSetOfFourRule(
+      notePrices.groups,
+      notePrices.line_items,
+      request
+    );
+
+    return {
+      ok: true,
+      source: 'note',
+      confidence: 0.8,
+      groups: useRequestPartDescriptions(groups, request),
+      lineItems: notePrices.line_items,
+      quoteTotalIncGst: notePrices.quote_total_inc_gst ?? null,
+      pdfJobMatch,
+      priceSource: 'parts_note',
+      gstBasis: 'unconfirmed',
+    };
+  }
+
+  return { ok: false, reason: rules.reason || 'Quote could not be read automatically' };
 }
 
-/** Fitted total across priced groups, for the run summary. */
+/** Fitted total across priced groups, for the run summary. Null when the
+ * groups are two or more options: their totals are alternatives and must
+ * never be added together (break B1). */
 export function quoteTotalForGroups(groups, request, labourRate) {
   const priced = groupsWithLabour(groups, request);
+  if (groupsHaveOptions(priced)) return null;
   const prices = priced.map(group => getGroupPricing(group, request, priced, labourRate));
   if (!prices.length || !prices.every(Boolean)) return null;
   return Math.round((prices.reduce((sum, p) => sum + p.totalIncGst, 0) + Number.EPSILON) * 100) / 100;
@@ -207,6 +271,9 @@ export function processRequest(request, ctx = {}) {
       customerUnverified,
       pdfJobMatch: analysis.pdfJobMatch?.status || 'unverified',
       tyreRuleApplied: analysis.groups.some(group => group.tyre_rule_applied),
+      priceSource: analysis.priceSource || 'pdf',
+      gstBasis: analysis.gstBasis || 'labelled',
+      gstBasisUnconfirmed: analysis.gstBasis === 'unconfirmed',
     },
   };
 }

@@ -95,8 +95,8 @@ test('recommendation note quotes the fitted total only', () => {
     request: DEERE_REQUEST,
     labourRate: LABOUR_RATE,
   });
-  assert.match(text, /Recommend ELEMENT SUB-ASSY: \$81\.42 inc GST \(fitted\)\./);
-  assert.match(text, /Recommend CABIN FILTER: \$88\.94 inc GST \(fitted\)\./);
+  assert.match(text, /Recommend Air filter: \$81\.42 inc GST \(fitted\)\./);
+  assert.match(text, /Recommend Cabin filter: \$88\.94 inc GST \(fitted\)\./);
   assert.doesNotMatch(text, /plus fitting/i);
   assert.doesNotMatch(text, /Labour:/);
   assert.equal(isPlainAscii(text), true);
@@ -125,4 +125,55 @@ test('unpriced groups draft as price TBC, never an invented price', () => {
   });
   assert.match(draft, /Battery: price TBC/);
   assert.match(draft, /Total: price TBC/);
+});
+
+test('two-option SMS lists both fitted totals and never sums them', () => {
+  const draft = buildSmsDraft({
+    customerName: 'Ms Neale',
+    vehicle: 'Tucson',
+    groups: [
+      { repair_name: 'KUMHO HP71 TYRE', parts: ['KUMHO HP71 TYRE x2'], parts_cost_ex_gst: 718, estimated_labour_hours: 0.5 },
+      { repair_name: 'HIFLY HP801 TYRE', parts: ['HIFLY HP801 TYRE x2'], parts_cost_ex_gst: 338, estimated_labour_hours: 0.5 },
+    ],
+    request: { parts: [{ part_type: 'tyres', quantity: 2 }], labour_lines: [{ hours: 0.5 }] },
+    labourRate: LABOUR_RATE,
+  });
+
+  assert.match(draft, /Kumho HP71 tyre: \$884\.80 inc GST/);
+  assert.match(draft, /Hifly HP801 tyre: \$466\.80 inc GST/);
+  assert.match(draft, /Total: \$884\.80 inc GST or \$466\.80 inc GST \(choose one option\)/);
+  assert.doesNotMatch(draft, /1351\.60/);
+  assert.equal(isPlainAscii(draft), true);
+});
+
+test('note-priced SMS keeps price provenance out of the draft text', () => {
+  const draft = buildSmsDraft({
+    customerName: 'Ms Neale',
+    vehicle: 'Tucson',
+    groups: [
+      { repair_name: 'hifly HP801', parts: ['hifly HP801 null x2'], parts_cost_ex_gst: 358, estimated_labour_hours: 0.5, part_type: 'tyres' },
+    ],
+    request: { parts: [{ part_type: 'tyres', quantity: 2 }], labour_lines: [{ hours: 0.5 }] },
+    labourRate: LABOUR_RATE,
+  });
+
+  assert.match(draft, /Hifly HP801 tyre: \$488\.80 inc GST/);
+  assert.doesNotMatch(draft, /Advisor note/);
+  assert.equal(isPlainAscii(draft), true);
+});
+
+test('SMS draft uses plain part names, never part-code jargon', () => {
+  const draft = buildSmsDraft({
+    customerName: 'Mr Parker',
+    vehicle: 'RAV4 Hybrid GX',
+    groups: PARKER_GROUPS,
+    request: PARKER_REQUEST,
+    labourRate: LABOUR_RATE,
+  });
+
+  assert.match(draft, /Tyre 225\/65R17: \$986\.00 inc GST/);
+  assert.match(draft, /Total: \$986\.00 inc GST/);
+  assert.doesNotMatch(draft, /TYR-22565/);
+  assert.equal(isPlainAscii(draft), true);
+  assert.doesNotMatch(draft, /"/);
 });

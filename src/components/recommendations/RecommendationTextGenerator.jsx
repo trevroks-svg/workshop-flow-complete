@@ -10,7 +10,9 @@ import { toast } from "sonner";
 import { Sparkles, Copy, Loader2, CheckCircle, ClipboardList, RefreshCw, Wrench, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import { analyseRepairs, applyWorkshopControllerLabour, mergeRelatedRepairGroups } from "@/lib/analyseRepairs";
 import { resolveLabourRate } from "@/lib/labourRate";
+import { plainPartName } from "@/lib/plainPartName";
 import { toPlainAscii } from "@/lib/smsText";
+import { apiFetch } from "@/lib/apiFetch";
 
 const PART_TYPE_LABELS = {
   air_filter: "Air Filter",
@@ -117,13 +119,14 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
       // Labour rate is inc GST.
       const labourIncGst = g.labour_hours != null ? g.labour_hours * labourRate : null;
       const totalIncGst = partsIncGst != null && labourIncGst != null ? partsIncGst + labourIncGst : null;
+      const name = plainPartName(g.repair_name, g.part_type);
       if (totalIncGst != null) {
-        return `Recommend ${g.repair_name}: $${totalIncGst.toFixed(2)} inc GST (fitted).`;
+        return `Recommend ${name}: $${totalIncGst.toFixed(2)} inc GST (fitted).`;
       }
       if (partsIncGst != null) {
-        return `Recommend ${g.repair_name}: Parts $${partsIncGst.toFixed(2)} inc GST, labour TBC.`;
+        return `Recommend ${name}: Parts $${partsIncGst.toFixed(2)} inc GST, labour TBC.`;
       }
-      return `Recommend ${g.repair_name}: Parts price TBC.`;
+      return `Recommend ${name}: Parts price TBC.`;
     }).join('\n');
   };
 
@@ -145,7 +148,7 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
         ? (partsIncGst + labourIncGst).toFixed(2)
         : null;
 
-      return `Repair: ${g.repair_name}
+      return `Repair: ${plainPartName(g.repair_name, g.part_type)}
   Parts: ${g.parts.join(', ')}
   Parts cost (ex GST): ${partsExGst != null ? `$${partsExGst.toFixed(2)}` : 'TBC'}
   Parts cost (inc GST): ${partsIncGst != null ? `$${partsIncGst.toFixed(2)}` : 'TBC'}
@@ -175,7 +178,7 @@ Generate now:`;
     try {
       // AI generation runs on the server (the API key lives there) — never
       // from the browser. Falls back to local text if it fails.
-      const apiResponse = await fetch('/api/ai/generate-recommendation', {
+      const apiResponse = await apiFetch('/api/ai/generate-recommendation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })

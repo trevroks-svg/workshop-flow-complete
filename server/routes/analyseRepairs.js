@@ -1,7 +1,8 @@
 import OpenAI from 'openai';
 import { parseQuoteText } from '../lib/quoteParser.js';
 import { checkPdfMatchesJob } from '../lib/pdfJobMatch.js';
-import { applyTyreSetOfFourRule, TYRE_REPLACEMENT_TREAD_MM } from '../lib/tyreRule.js';
+import { applyTyreSetOfFourRule, recomputeQuoteTotalAfterTyreRule, TYRE_REPLACEMENT_TREAD_MM } from '../lib/tyreRule.js';
+import { resolveLabourRate } from '../lib/labourRate.js';
 
 const repairAnalysisSchema = {
   type: 'object',
@@ -170,6 +171,20 @@ export default async function analyseRepairs(req, res) {
         });
       }
 
+      // The tyre rule reprices the groups; the parsed total is the
+      // pre-reprice figure (one tyre, $199), so recompute it or the panel
+      // shows the stale total (break B6).
+      const groups = applyTyreSetOfFourRule(
+        rulesAnalysis.result.groups,
+        rulesAnalysis.result.line_items,
+        requestForAnalysis
+      );
+      const repricedTotal = recomputeQuoteTotalAfterTyreRule(
+        groups,
+        requestForAnalysis,
+        resolveLabourRate(requestForAnalysis.labour_rate_ex_gst)
+      );
+
       return res.json({
         success: true,
         source: 'rules',
@@ -177,11 +192,8 @@ export default async function analyseRepairs(req, res) {
         pdf_job_match: pdfJobMatch,
         result: {
           ...rulesAnalysis.result,
-          groups: applyTyreSetOfFourRule(
-            rulesAnalysis.result.groups,
-            rulesAnalysis.result.line_items,
-            requestForAnalysis
-          ),
+          groups,
+          quote_total_inc_gst: repricedTotal ?? rulesAnalysis.result.quote_total_inc_gst,
         },
       });
     }
@@ -229,6 +241,16 @@ export default async function analyseRepairs(req, res) {
       });
     }
 
+    // Same guards as the rules path: never build a quote from a PDF that
+    // belongs to another job, and price worn tyres as a set of four - with
+    // the total recomputed after the reprice (break B6).
+    const openaiGroups = applyTyreSetOfFourRule(result.groups || [], result.line_items || [], requestForAnalysis);
+    const openaiRepricedTotal = recomputeQuoteTotalAfterTyreRule(
+      openaiGroups,
+      requestForAnalysis,
+      resolveLabourRate(requestForAnalysis.labour_rate_ex_gst)
+    );
+
     return res.json({
       success: true,
       source: 'openai',
@@ -236,7 +258,8 @@ export default async function analyseRepairs(req, res) {
       pdf_job_match: pdfJobMatch,
       result: {
         ...result,
-        groups: applyTyreSetOfFourRule(result.groups || [], result.line_items || [], requestForAnalysis),
+        groups: openaiGroups,
+        quote_total_inc_gst: openaiRepricedTotal ?? result.quote_total_inc_gst,
       },
     });
   } catch (err) {

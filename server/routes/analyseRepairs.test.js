@@ -144,3 +144,30 @@ test('analyse-repairs prices worn tyres as a set of four', async () => {
   assert.equal(response.data.result.groups[0].parts_cost_ex_gst, 723.64); // 4 x $180.91
   assert.equal(response.data.result.groups[0].tyre_set_of_four, true);
 });
+
+test('analyse-repairs shows the repriced $986 total after the tyre rule, not the stale $199', async () => {
+  const response = await callRoute({
+    request: {
+      job_card_number: 'J03073174',
+      parts: [{ part_type: 'tyres', quantity: 1 }],
+      tyre_tread_depths: { lh_front: 5, rh_front: 2, lh_rear: 2, rh_rear: 1 },
+      labour_lines: [{ part_type: 'tyres', hours: 1 }],
+      quote_pdf_text: [
+        'PARTS QUOTATION',
+        'Description Part Number Qty Unit Price (ex GST) GST Total (inc GST)',
+        '225/65R17 102H SC-MS 4341300 1 $180.91 $18.09 $199.00',
+        'Subtotal (ex GST): $180.91',
+        'GST (10%): $18.09',
+        'TOTAL (inc GST): $199.00',
+      ].join(' '),
+    },
+    partsText: 'Tyres 225/65R17',
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.data.success, true);
+  assert.equal(response.data.source, 'rules');
+  assert.equal(response.data.result.groups[0].parts_cost_ex_gst, 723.64);
+  assert.equal(response.data.result.groups[0].tyre_rule_applied, true);
+  assert.equal(response.data.result.quote_total_inc_gst, 986);
+});

@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
+import { apiFetch } from "@/lib/apiFetch";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ArrowLeft, UserPlus, Loader2, Shield, Wrench, Package, ClipboardList, Headphones, RefreshCw, Trash2, KeyRound } from "lucide-react";
 import { createPageUrl } from "@/utils";
@@ -69,7 +70,7 @@ export default function AdminUsers() {
 
     try {
       setIsInviting(true);
-      const res = await fetch('/api/invite-user', {
+      const res = await apiFetch('/api/invite-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: inviteEmail, business_id: currentUser?.business_id })

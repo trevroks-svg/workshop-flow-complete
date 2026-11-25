@@ -19,9 +19,15 @@
 
 import { toPlainAscii } from './smsText.js';
 import { resolveLabourRate } from './labourRate.js';
+import { plainPartName, groupsHaveOptions } from './plainPartName.js';
 
 export const GST_MULTIPLIER = 1.1;
 export const SMS_REPLY_LINE = 'Please reply YES to approve or NO to decline. Fleurieu Motor Group Service 08 8552 1255';
+
+// Price provenance for a note-priced draft lives only in the draft flags
+// (priceSource 'parts_note', gstBasisUnconfirmed true) — never in the draft
+// text itself, so an advisor copies a customer-ready draft with nothing to
+// delete (Trevor, 25 Nov 2026).
 
 const FILTER_REPAIR_PATTERN = /\b(air|pollen|cabin)\b.*\bfilter\b|\bfilter\b.*\b(air|pollen|cabin)\b/i;
 
@@ -147,28 +153,40 @@ export function buildSmsDraft({ customerName, vehicle, groups, request, labourRa
 
   const lines = pricedGroups.map(group => {
     const pricing = getGroupPricing(group, request, pricedGroups, labourRate);
-    if (!pricing) return `${group.repair_name}: price TBC`;
-    return `${group.repair_name}: $${pricing.totalIncGst.toFixed(2)} inc GST`;
+    const name = plainPartName(group.repair_name, group.part_type);
+    if (!pricing) return `${name}: price TBC`;
+    return `${name}: $${pricing.totalIncGst.toFixed(2)} inc GST`;
   });
 
   const groupPrices = pricedGroups.map(group =>
     getGroupPricing(group, request, pricedGroups, labourRate)
   );
   const allPricesKnown = groupPrices.length > 0 && groupPrices.every(Boolean);
-  const pricedTotal = allPricesKnown
-    ? groupPrices.reduce((sum, pricing) => sum + pricing.totalIncGst, 0)
-    : null;
-  const totalLine = pricedTotal != null
-    ? `Total: $${pricedTotal.toFixed(2)} inc GST`
-    : 'Total: price TBC';
+  // Two or more options are alternatives, never a single purchase: the
+  // total lists each option's fitted total ("$884.80 inc GST or $466.80
+  // inc GST (choose one option)") and never sums them (break B1).
+  let totalLine = 'Total: price TBC';
+  if (allPricesKnown) {
+    const totals = groupPrices.map(pricing => pricing.totalIncGst);
+    if (groupsHaveOptions(pricedGroups)) {
+      const formatted = totals.map(total => `$${total.toFixed(2)} inc GST`);
+      const last = formatted.pop();
+      totalLine = formatted.length
+        ? `Total: ${formatted.join(', ')} or ${last} (choose one option)`
+        : `Total: ${last} (choose one option)`;
+    } else {
+      totalLine = `Total: $${totals.reduce((sum, total) => sum + total, 0).toFixed(2)} inc GST`;
+    }
+  }
 
-  return toPlainAscii([
+  const body = [
     `${greeting}${vehicleMention ? ` ${vehicleMention}` : ''}`,
     'We recommend the following work:',
     ...lines,
     totalLine,
     SMS_REPLY_LINE,
-  ].join('\n'));
+  ];
+  return toPlainAscii(body.join('\n'));
 }
 
 /**
@@ -178,17 +196,19 @@ export function buildSmsDraft({ customerName, vehicle, groups, request, labourRa
  */
 export function buildRecommendationText({ groups, request, labourRate }) {
   const pricedGroups = groupsWithLabour(groups, request);
-  return pricedGroups.map(group => {
+  const lines = pricedGroups.map(group => {
     const pricing = getGroupPricing(group, request, pricedGroups, labourRate);
+    const name = plainPartName(group.repair_name, group.part_type);
     if (pricing) {
-      return `Recommend ${group.repair_name}: $${pricing.totalIncGst.toFixed(2)} inc GST (fitted).`;
+      return `Recommend ${name}: $${pricing.totalIncGst.toFixed(2)} inc GST (fitted).`;
     }
     const partsIncGst = group.parts_cost_ex_gst != null
       ? group.parts_cost_ex_gst * GST_MULTIPLIER
       : null;
     if (partsIncGst != null) {
-      return `Recommend ${group.repair_name}: Parts $${partsIncGst.toFixed(2)} inc GST, labour TBC.`;
+      return `Recommend ${name}: Parts $${partsIncGst.toFixed(2)} inc GST, labour TBC.`;
     }
-    return `Recommend ${group.repair_name}: Parts price TBC.`;
-  }).join('\n');
+    return `Recommend ${name}: Parts price TBC.`;
+  });
+  return lines.join('\n');
 }

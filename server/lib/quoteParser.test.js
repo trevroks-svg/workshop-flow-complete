@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseQuoteText } from './quoteParser.js';
+import { parseQuoteText, parseNotePrices } from './quoteParser.js';
 
 function quoteText({ description, partNumber, unitPriceExGst, gst, totalIncGst }) {
   return [
@@ -153,4 +153,104 @@ test('rules parser extracts Tune rows in pdfjs observed order', () => {
   assert.equal(parsed.result.line_items[1].quantity, 1);
   assert.equal(parsed.result.line_items[1].unit_price_ex_gst, 78.88);
   assert.equal(parsed.result.line_items[1].line_total_ex_gst, 78.88);
+});
+
+test('table row starting with a tyre size keeps the full size in the description', () => {
+  const parsed = parseQuoteText([
+    'PARTS QUOTATION',
+    'Description Part Number Qty Unit Price (ex GST) GST Total (inc GST)',
+    '225/65R17 102H SC-MS 4341300 1 $180.91 $18.09 $199.00',
+    'Subtotal (ex GST): $180.91',
+    'GST (10%): $18.09',
+    'TOTAL (inc GST): $199.00',
+  ].join(' '));
+
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.result.line_items[0].description, '225/65R17 102H SC-MS');
+  assert.equal(parsed.result.line_items[0].part_number, '4341300');
+  assert.equal(parsed.result.groups[0].repair_name, '225/65R17 102H SC-MS');
+});
+
+test('unlabelled dealer quote parses with the GST basis inferred from the GST line', () => {
+  const parsed = parseQuoteText(
+    'PARTS QUOTATION VICTOR HARBOR TOYOTA ' +
+    'LN1MF TOYOTA BATTERY 109700 1 $309.17 $30.92 $340.09 ' +
+    'PARTS TOTAL $309.17 GST $30.92 TOTAL $340.09'
+  );
+
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.result.gst_basis, 'inferred');
+  assert.equal(parsed.result.quote_total_inc_gst, 340.09);
+  assert.equal(parsed.result.line_items[0].description, 'LN1MF TOYOTA BATTERY');
+  assert.equal(parsed.result.line_items[0].unit_price_ex_gst, 309.17);
+});
+
+test('unlabelled quote whose rows do not reconcile with its totals fails cleanly', () => {
+  const parsed = parseQuoteText(
+    'PARTS QUOTATION VICTOR HARBOR TOYOTA ' +
+    'LN1MF TOYOTA BATTERY 109700 1 $309.17 $30.92 $340.09 ' +
+    'PARTS TOTAL $999.99 GST $30.92 TOTAL $340.09'
+  );
+
+  assert.equal(parsed.success, false);
+  assert.match(parsed.reason, /do not match quote totals/);
+});
+
+test('two-money rows parse with the GST basis determined from the maths', () => {
+  const parsed = parseQuoteText(
+    'PARTS QUOTATION VICTOR HARBOR TOYOTA ' +
+    'LN1MF TOYOTA BATTERY 109700 1 $309.17 $340.09 ' +
+    'PARTS TOTAL $309.17 GST $30.92 TOTAL $340.09'
+  );
+
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.result.gst_basis, 'inferred');
+  assert.equal(parsed.result.quote_total_inc_gst, 340.09);
+  assert.equal(parsed.result.line_items[0].unit_price_ex_gst, 309.17);
+});
+
+test('labelled table reports the GST basis as labelled', () => {
+  const parsed = parseQuoteText(quoteText({
+    description: 'Air Filter',
+    partNumber: 'AF-1087',
+    unitPriceExGst: 18.5,
+    gst: 1.85,
+    totalIncGst: 20.35,
+  }));
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.result.gst_basis, 'labelled');
+});
+
+test('parseNotePrices reads a per-unit price from the interpreter note', () => {
+  const result = parseNotePrices('hifly HP801 $179 each+fit, 3 days', {
+    parts: [{ part_type: 'tyres', quantity: 2 }],
+  });
+
+  assert.equal(result.gst_basis, 'unconfirmed');
+  assert.equal(result.price_source, 'parts_note');
+  assert.equal(result.line_items.length, 1);
+  assert.equal(result.line_items[0].description, 'hifly HP801');
+  assert.equal(result.line_items[0].quantity, 2);
+  assert.equal(result.line_items[0].unit_price_ex_gst, 179);
+  assert.equal(result.line_items[0].part_type, 'tyres');
+  assert.equal(result.quote_total_inc_gst, 393.8);
+});
+
+test('parseNotePrices reads two options from one note', () => {
+  const result = parseNotePrices(
+    'KUMHO HP71 $359 EA + FIT 3 DAYS (SPECIAL UNTIL END OF NOV) / HIFLY HP801 $169 EA + FIT 3 DAYS',
+    { parts: [{ part_type: 'tyres', quantity: 2 }] }
+  );
+
+  assert.equal(result.line_items.length, 2);
+  assert.equal(result.line_items[0].description, 'KUMHO HP71');
+  assert.equal(result.line_items[1].description, 'HIFLY HP801');
+  assert.equal(result.quote_total_inc_gst, 1161.6);
+});
+
+test('parseNotePrices returns null when the note holds no price', () => {
+  assert.equal(parseNotePrices('hifly HP801 in stock, 3 days', {
+    parts: [{ part_type: 'tyres', quantity: 2 }],
+  }), null);
+  assert.equal(parseNotePrices('', { parts: [] }), null);
 });

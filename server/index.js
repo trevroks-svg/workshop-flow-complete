@@ -8,7 +8,13 @@
  *
  * Required env vars (put in server/.env or your hosting platform):
  *   SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY   ← service-role key (bypasses RLS for server ops)
+ *   SUPABASE_SERVICE_ROLE_KEY   ← service-role key (bypasses RLS for server ops;
+ *                                  ALSO required for the staff-role check in
+ *                                  requireAuth — without it every protected
+ *                                  route answers 503)
+ *   SUPABASE_ANON_KEY           ← anon (public) key, used ONLY to verify the
+ *                                  caller's session token in requireAuth
+ *                                  (see server/middleware/requireAuth.js)
  *   STRIPE_SECRET_KEY
  *   STRIPE_WEBHOOK_SECRET
  *   RESEND_API_KEY
@@ -45,6 +51,9 @@ import generateRecommendation   from './routes/generateRecommendation.js';
 import analyseLabour            from './routes/analyseLabour.js';
 import runAgentLoop, { getAgentLoopStatus, listAgentLoopDrafts, startAgentLoopTimer } from './routes/agentLoop.js';
 import { importJobSchedule, matchJobSchedule, jobScheduleStatus } from './routes/jobSchedule.js';
+import inviteUser from './routes/inviteUser.js';
+import requireAuth, { requireRoles } from './middleware/requireAuth.js';
+import { ADMIN_ROLES, MANAGER_ROLES } from './lib/roles.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -57,23 +66,33 @@ app.use(express.json());
 app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.post('/api/notify-parts-interpreters',   notifyPartsInterpreters);
-app.post('/api/notify-workshop-controllers', notifyWorkshopControllers);
-app.post('/api/notify-service-advisors',     notifyServiceAdvisors);
+// requireAuth verifies the caller's Supabase session AND staff role
+// (Authorization: Bearer <access token>) before any user-facing handler
+// runs — a signed-in user with no staff role gets 403. requireRoles
+// tightens individual routes to the roles the UI already gates them to
+// (see server/lib/roles.js). These are NOT applied to:
+//   POST /api/agent-loop/run and POST /api/check-overdue-requests — called by
+//     an external cron with no user session; each enforces CRON_SECRET itself
+//   POST /api/stripe-webhook — verified by Stripe's signature instead
+//   GET  /api/health — public liveness check
+app.post('/api/notify-parts-interpreters',   requireAuth, notifyPartsInterpreters);
+app.post('/api/notify-workshop-controllers', requireAuth, notifyWorkshopControllers);
+app.post('/api/notify-service-advisors',     requireAuth, notifyServiceAdvisors);
 app.post('/api/check-overdue-requests',      checkOverdueRequests);   // call from a cron job
-app.post('/api/create-checkout-session',     createCheckoutSession);
+app.post('/api/create-checkout-session',     requireAuth, createCheckoutSession);
 app.post('/api/stripe-webhook',              stripeWebhook);
-app.post('/api/ai/analyse-repairs',          analyseRepairs);
-app.post('/api/ai/generate-follow-up-sms',   generateFollowUpSms);
-app.post('/api/ai/generate-advisor-sms',     generateAdvisorSms);
-app.post('/api/ai/generate-recommendation',  generateRecommendation);
-app.post('/api/ai/analyse-labour',           analyseLabour);
-app.post('/api/job-schedule/import',         importJobSchedule);
-app.get('/api/job-schedule/match',           matchJobSchedule);
-app.get('/api/job-schedule/status',          jobScheduleStatus);
+app.post('/api/ai/analyse-repairs',          requireAuth, analyseRepairs);
+app.post('/api/ai/generate-follow-up-sms',   requireAuth, generateFollowUpSms);
+app.post('/api/ai/generate-advisor-sms',     requireAuth, generateAdvisorSms);
+app.post('/api/ai/generate-recommendation',  requireAuth, generateRecommendation);
+app.post('/api/ai/analyse-labour',           requireAuth, analyseLabour);
+app.post('/api/job-schedule/import',         requireAuth, requireRoles(...MANAGER_ROLES), importJobSchedule);
+app.get('/api/job-schedule/match',           requireAuth, matchJobSchedule);
+app.get('/api/job-schedule/status',          requireAuth, jobScheduleStatus);
+app.post('/api/invite-user',                 requireAuth, requireRoles(...ADMIN_ROLES), inviteUser);
 app.post('/api/agent-loop/run',              runAgentLoop);      // call every 5 min from a cron job
-app.get('/api/agent-loop/status',            getAgentLoopStatus);
-app.get('/api/agent-loop/drafts',            listAgentLoopDrafts);
+app.get('/api/agent-loop/status',            requireAuth, requireRoles(...MANAGER_ROLES), getAgentLoopStatus);
+app.get('/api/agent-loop/drafts',            requireAuth, requireRoles(...MANAGER_ROLES), listAgentLoopDrafts);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/dateUtils";
 import { analyseRepairs } from "@/lib/analyseRepairs";
+import { apiFetch } from "@/lib/apiFetch";
 import { resolveLabourRate } from "@/lib/labourRate";
 
 function formatDate(dateStr) {
@@ -127,7 +128,7 @@ function SMSRow({ request, user, labourRate, onFollowUpDone }) {
       const generatedText = `${greeting}, ${statusText} for job ${jobCard} on ${vehicleText}. Just following up in case you would like to go ahead.\n${repairLines}\nTotal: ${grandTotalIncGst ? `$${grandTotalIncGst} inc GST` : 'price TBC'}\nPlease reply YES to approve or call Fleurieu Motor Group Service on 08 8552 1255 to discuss.`;
       fallbackText = generatedText;
 
-      const apiResponse = await fetch('/api/ai/generate-follow-up-sms', {
+      const apiResponse = await apiFetch('/api/ai/generate-follow-up-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

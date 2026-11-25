@@ -109,15 +109,22 @@ test('rules analysis refuses a mismatched PDF', () => {
   assert.equal(analysis.pdfJobMatch.status, 'mismatch');
 });
 
-test('rules analysis fails cleanly on a blank/stale PDF (notes-only pricing)', () => {
+test('rules analysis drafts from the interpreter note when the PDF is blank (notes-only pricing)', () => {
   const analysis = analyseRequestWithRules({
     job_card_number: 'J03073213',
     parts: [{ part_type: 'tyres', quantity: 2 }],
     quote_pdf_text: 'PARTS QUOTATION TOTAL $0.00',
     parts_interpreter_notes: 'hifly HP801 $179 each+fit, 3 days',
   });
-  assert.equal(analysis.ok, false);
-  assert.match(analysis.reason, /could not be read|No complete/i);
+  // The Neale trial case: blank PDF, price only in the note. The loop
+  // drafts from the note and flags the price source and the unconfirmed
+  // GST basis instead of failing.
+  assert.equal(analysis.ok, true);
+  assert.equal(analysis.source, 'note');
+  assert.equal(analysis.priceSource, 'parts_note');
+  assert.equal(analysis.gstBasis, 'unconfirmed');
+  assert.equal(analysis.groups[0].repair_name, 'hifly HP801');
+  assert.equal(analysis.quoteTotalIncGst, 393.8);
 });
 
 test('processRequest drafts the Deere SMS at $170.36 with schedule details', () => {
@@ -177,18 +184,18 @@ test('processRequest builds a recommendation note, never an SMS, for advisor_act
   assert.equal(outcome.draftType, 'recommendation');
   // $223.10 ex GST + GST = $245.41, plus 1h labour at $190 inc GST.
   assert.equal(outcome.quoteTotalIncGst, 435.41);
-  assert.match(outcome.draftText, /Recommend GARNISH ASSY-FRT DR SIDE: \$435\.41 inc GST \(fitted\)\./);
+  assert.match(outcome.draftText, /Recommend Front passenger door side skirt: \$435\.41 inc GST \(fitted\)\./);
   assert.doesNotMatch(outcome.draftText, /Please reply YES/);
 });
 
-test('processRequest returns needs_attention when the quote cannot be read', () => {
+test('processRequest returns needs_attention when neither PDF nor note can be priced', () => {
   const outcome = processRequest({
     id: 'req-dixon',
     job_card_number: 'J03073213',
     status: 'advisor_action_required',
     parts: [{ part_type: 'tyres', quantity: 2 }],
     quote_pdf_text: 'PARTS QUOTATION TOTAL $0.00',
-    parts_interpreter_notes: 'hifly HP801 $179 each+fit, 3 days',
+    parts_interpreter_notes: 'hifly HP801 in stock, 3 days',
     updated_at: '2026-11-25T00:00:00Z',
   }, { getScheduleRow: () => null });
   assert.equal(outcome.action, 'needs_attention');
@@ -285,4 +292,81 @@ test('runAgentLoopPass keeps going when one request fails', async () => {
   assert.equal(summary.errors[0].jobCard, 'J03079999');
   assert.equal(summary.drafted.length, 1);
   assert.equal(summary.drafted[0].jobCard, 'J03073211');
+});
+
+test('processRequest drafts the Parker tyres job at $986 from a size-only quote line', () => {
+  const outcome = processRequest({
+    id: 'req-parker',
+    job_card_number: 'J03073174',
+    status: 'sent_to_advisor',
+    parts: [{ part_type: 'tyres', quantity: 1 }],
+    tyre_tread_depths: { lh_front: 5, rh_front: 2, lh_rear: 2, rh_rear: 1 },
+    quote_pdf_text: [
+      'PARTS QUOTATION',
+      'Description Part Number Qty Unit Price (ex GST) GST Total (inc GST)',
+      '225/65R17 102H SC-MS 4341300 1 $180.91 $18.09 $199.00',
+      'Subtotal (ex GST): $180.91',
+      'GST (10%): $18.09',
+      'TOTAL (inc GST): $199.00',
+    ].join(' '),
+    labour_lines: [{ part_type: 'tyres', hours: 1 }],
+    customer_name: 'Jo Parker',
+    vehicle_type: 'RAV4 Hybrid GX',
+    updated_at: '2026-11-24T00:00:00Z',
+  }, { getScheduleRow: () => null });
+
+  assert.equal(outcome.action, 'drafted');
+  assert.equal(outcome.draftType, 'sms');
+  assert.equal(outcome.quoteTotalIncGst, 986);
+  assert.equal(outcome.flags.tyreRuleApplied, true);
+  assert.match(outcome.draftText, /Tyre 225\/65R17: \$986\.00 inc GST/);
+  assert.doesNotMatch(outcome.draftText, /R17 102H/);
+});
+
+test('processRequest drafts an unlabelled dealer quote and records the inferred GST basis', () => {
+  const outcome = processRequest({
+    id: 'req-sickadick',
+    job_card_number: 'J03073243',
+    status: 'sent_to_advisor',
+    parts: [{ part_type: 'battery', quantity: 1 }],
+    quote_pdf_text:
+      'PARTS QUOTATION VICTOR HARBOR TOYOTA ' +
+      'LN1MF TOYOTA BATTERY 109700 1 $309.17 $30.92 $340.09 ' +
+      'PARTS TOTAL $309.17 GST $30.92 TOTAL $340.09',
+    labour_lines: [{ part_type: 'battery', hours: 0.25 }],
+    customer_name: 'Mr Simon Sickadick',
+    vehicle_type: 'C-HR Hybrid Koba',
+    updated_at: '2026-11-25T00:00:00Z',
+  }, { getScheduleRow: () => null });
+
+  assert.equal(outcome.action, 'drafted');
+  assert.equal(outcome.quoteTotalIncGst, 387.59);
+  assert.equal(outcome.flags.gstBasis, 'inferred');
+  assert.equal(outcome.flags.gstBasisUnconfirmed, false);
+  assert.match(outcome.draftText, /Toyota battery: \$387\.59 inc GST/);
+});
+
+test('processRequest drafts two note-priced tyre options without summing them', () => {
+  const outcome = processRequest({
+    id: 'req-neale-options',
+    job_card_number: 'J03072669',
+    status: 'sent_to_advisor',
+    parts: [{ part_type: 'tyres', quantity: 2 }],
+    quote_pdf_text: 'PARTS QUOTATION TOTAL $0.00',
+    parts_interpreter_notes: 'KUMHO HP71 $359 EA + FIT 3 DAYS (SPECIAL UNTIL END OF NOV) / HIFLY HP801 $169 EA + FIT 3 DAYS',
+    labour_lines: [{ hours: 0.5 }],
+    customer_name: 'Ms Neale',
+    vehicle_type: 'Tucson N Line',
+    updated_at: '2026-11-25T00:00:00Z',
+  }, { getScheduleRow: () => null });
+
+  assert.equal(outcome.action, 'drafted');
+  assert.equal(outcome.quoteTotalIncGst, null);
+  assert.equal(outcome.flags.priceSource, 'parts_note');
+  assert.equal(outcome.flags.gstBasisUnconfirmed, true);
+  assert.match(outcome.draftText, /Kumho HP71 tyre: \$884\.80 inc GST/);
+  assert.match(outcome.draftText, /Hifly HP801 tyre: \$466\.80 inc GST/);
+  assert.match(outcome.draftText, /Total: \$884\.80 inc GST or \$466\.80 inc GST \(choose one option\)/);
+  assert.doesNotMatch(outcome.draftText, /1351\.60/);
+  assert.doesNotMatch(outcome.draftText, /Advisor note/);
 });

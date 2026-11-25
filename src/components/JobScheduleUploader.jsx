@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Upload, CheckCircle, AlertTriangle, Loader2, CalendarDays } from "lucide-react";
 import { toast } from "sonner";
+import { apiFetch } from "@/lib/apiFetch";
 
 /**
  * Uploads the daily job schedule CSV (DMS Report_CSV_Exports) to the server.
@@ -20,7 +21,7 @@ export default function JobScheduleUploader() {
     setError(null);
     try {
       const csvText = await file.text();
-      const apiResponse = await fetch('/api/job-schedule/import', {
+      const apiResponse = await apiFetch('/api/job-schedule/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csvText }),

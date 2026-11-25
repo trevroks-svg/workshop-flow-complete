@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyTyreSetOfFourRule,
+  recomputeQuoteTotalAfterTyreRule,
   tyresNeedReplacement,
   getMinRoadTreadMm,
   TYRE_REPLACEMENT_TREAD_MM,
@@ -83,4 +84,38 @@ test('tyre rule ignores the spare and non-tyre groups', () => {
   );
   assert.equal(group.parts_cost_ex_gst, 18.5);
   assert.equal(group.tyre_set_of_four, undefined);
+});
+
+test('tyre rule triggers on a size-only line (no word "tyre" anywhere)', () => {
+  const [group] = applyTyreSetOfFourRule(
+    [{ repair_name: '225/65R17 102H SC-MS', parts: ['225/65R17 102H SC-MS 4341300 x1'], parts_cost_ex_gst: 180.91, estimated_labour_hours: 1, labour_hours: 1 }],
+    [{ description: '225/65R17 102H SC-MS', quantity: 1, unit_price_ex_gst: 180.91 }],
+    { tyre_tread_depths: WORN_TREADS }
+  );
+  assert.equal(group.parts_cost_ex_gst, 723.64);
+  assert.equal(group.tyre_rule_applied, true);
+});
+
+test('recomputeQuoteTotalAfterTyreRule returns $986 for the Parker set of four', () => {
+  const [group] = applyTyreSetOfFourRule(
+    [{ repair_name: '225/65R17 102H SC-MS', parts: ['225/65R17 102H SC-MS 4341300 x1'], parts_cost_ex_gst: 180.91, estimated_labour_hours: 1, labour_hours: 1 }],
+    [{ description: '225/65R17 102H SC-MS', quantity: 1, unit_price_ex_gst: 180.91 }],
+    { tyre_tread_depths: WORN_TREADS, labour_lines: [{ hours: 1 }] }
+  );
+  assert.equal(group.tyre_rule_applied, true);
+  assert.equal(
+    recomputeQuoteTotalAfterTyreRule([group], { labour_lines: [{ hours: 1 }] }, 190),
+    986
+  );
+});
+
+test('recomputeQuoteTotalAfterTyreRule returns null when no group was repriced', () => {
+  assert.equal(
+    recomputeQuoteTotalAfterTyreRule(
+      [{ repair_name: 'Air Filter', parts_cost_ex_gst: 18.5, estimated_labour_hours: 0.5 }],
+      {},
+      190
+    ),
+    null
+  );
 });

@@ -7,7 +7,13 @@
  * at or below 2mm. The spare is ignored. If no tread depths were recorded,
  * pricing is left alone and the group is flagged so the advisor can check.
  * Labour hours are unchanged — the quoted labour applies to the set.
+ *
+ * A tyre line is recognised by the word "tyre" OR by a tyre size
+ * (225/65R17) — real dealer lines are usually just a size and a code, so
+ * testing for the word alone misses every realistic tyres quote (break B0).
  */
+
+import { TYRE_SIZE_RE } from './plainPartName.js';
 
 export const TYRE_REPLACEMENT_TREAD_MM = 2;
 export const TYRE_SET_SIZE = 4;
@@ -34,13 +40,46 @@ export function tyresNeedReplacement(tyreTreadDepths) {
   return min != null && min <= TYRE_REPLACEMENT_TREAD_MM;
 }
 
+// A line or group is a tyre line when it says so, carries a tyre size, or
+// - for note-priced items - was tagged with the request's tyres part type.
+export function isTyreText(text) {
+  const value = String(text || '');
+  return TYRE_SIZE_RE.test(value) || /\b(tyres?|tires?)\b/i.test(value);
+}
+
 function isTyreGroup(group) {
-  const text = [group.repair_name, ...(group.parts || [])].join(' ').toLowerCase();
-  return /\b(tyres?|tires?)\b/.test(text);
+  if (group?.part_type === 'tyres') return true;
+  const text = [group.repair_name, ...(group.parts || [])].join(' ');
+  return isTyreText(text);
 }
 
 function roundCurrency(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Recompute the fitted quote total after the tyre rule repriced a group.
+ * The parsed quote total is the pre-reprice figure (one tyre), so the
+ * analyse panel would otherwise show the stale $199 instead of $986
+ * (break B6). Returns null when no group was repriced. labourRate is the
+ * inc-GST labour rate ($190). Labour hours come from the controller's
+ * single labour line when there is exactly one group, otherwise from each
+ * group's own labour hours - the same rule the draft builders use.
+ */
+export function recomputeQuoteTotalAfterTyreRule(groups, request, labourRate) {
+  if (!Array.isArray(groups) || !groups.some((g) => g.tyre_rule_applied)) return null;
+  const partsIncGst = groups.reduce((sum, g) => sum + (g.parts_cost_ex_gst || 0) * 1.1, 0);
+  const labourLines = request?.labour_lines || [];
+  let labourIncGst = 0;
+  if (labourLines.length === 1 && groups.length === 1 && Number.isFinite(Number(labourLines[0]?.hours))) {
+    labourIncGst = Number(labourLines[0].hours) * labourRate;
+  } else {
+    labourIncGst = groups.reduce(
+      (sum, g) => sum + (g.labour_hours ?? g.estimated_labour_hours ?? 0.5) * labourRate,
+      0
+    );
+  }
+  return roundCurrency(partsIncGst + labourIncGst);
 }
 
 /**
@@ -64,7 +103,9 @@ export function applyTyreSetOfFourRule(groups, lineItems, request) {
       };
     }
 
-    const tyreItems = (lineItems || []).filter(item => /\b(tyres?|tires?)\b/i.test(item.description || ''));
+    const tyreItems = (lineItems || []).filter(item =>
+      item?.part_type === 'tyres' || isTyreText(item.description || '')
+    );
     const unitPrice = tyreItems
       .map(item => item.unit_price_ex_gst)
       .find(value => value != null && value > 0) ?? null;

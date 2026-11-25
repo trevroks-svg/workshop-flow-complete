@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 export default function SubscribeButton({
   businessName,
@@ -21,7 +22,7 @@ export default function SubscribeButton({
 
     setLoading(true);
     try {
-      const res = await fetch('/api/create-checkout-session', {
+      const res = await apiFetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ business_name: businessName, email, business_id: businessId }),

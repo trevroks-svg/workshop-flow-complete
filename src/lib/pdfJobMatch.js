@@ -20,6 +20,14 @@
  * confirm it either way — it is a warning, not a block.
  */
 
+// Part families, matched against the PDF line-item descriptions and part
+// numbers. Real dealer lines rarely spell the part out: a tyre line is
+// usually just a size and a code (225/65R17 102H SC-MS), and an air filter
+// line is a part code (ELEMENT SUB-ASSY, ELEMENT AIR REFINER). The patterns
+// below recognise those shapes; the keyword lists alone would reject every
+// realistic tyres or air-filter quote (break B0).
+import { TYRE_SIZE_RE } from './plainPartName.js';
+
 const JOB_CARD_PATTERN = /\b[JB]\d{7,9}\b/g;
 
 const PART_KEYWORDS = {
@@ -32,6 +40,21 @@ const PART_KEYWORDS = {
   front_rotors: ['disc', 'rotor'],
   rear_rotors: ['disc', 'rotor'],
   tyres: ['tyre', 'tire'],
+  other: [],
+};
+
+// Extra patterns per family, for lines that name the part by code or size
+// rather than by word.
+const PART_PATTERNS = {
+  air_filter: [/element\s+sub-?assy/i, /air\s+refiner/i],
+  pollen_filter: [],
+  battery: [],
+  wiper_blades: [],
+  front_pads: [],
+  rear_pads: [],
+  front_rotors: [],
+  rear_rotors: [],
+  tyres: [TYRE_SIZE_RE],
   other: [],
 };
 
@@ -72,14 +95,23 @@ export function checkPdfMatchesJob(request, pdfText, lineItems = []) {
 
   // Parts-family check: the PDF's line items should mention at least one of
   // the requested parts. A battery-only quote on a tyres job is a mismatch.
+  // The haystack covers descriptions and part numbers (the Tune extractor
+  // can put the part word, e.g. BATTERY, in the part-number slot), and
+  // line items that carry a part_type - note-priced items - match that
+  // type directly, since they come from the request's own interpreter note.
   const requestedTypes = (request?.parts || []).map(part => part.part_type).filter(Boolean);
   const descriptions = (lineItems || []).map(item => normalise(item.description)).filter(Boolean);
-  if (requestedTypes.length && descriptions.length) {
-    const haystack = descriptions.join(' ');
+  const partNumbers = (lineItems || []).map(item => normalise(item.part_number)).filter(Boolean);
+  const itemTypes = (lineItems || []).map(item => item.part_type).filter(Boolean);
+  if (requestedTypes.length && (descriptions.length || partNumbers.length || itemTypes.length)) {
+    const haystack = [...descriptions, ...partNumbers].join(' | ');
     const anyFamilyMatches = requestedTypes.some(type => {
+      if (itemTypes.includes(type)) return true;
       const keywords = PART_KEYWORDS[type] || [];
-      if (!keywords.length) return true; // 'other' parts: cannot judge from keywords
-      return keywords.some(keyword => haystack.includes(keyword));
+      const patterns = PART_PATTERNS[type] || [];
+      if (!keywords.length && !patterns.length) return true; // 'other' parts: cannot judge from keywords
+      return keywords.some(keyword => haystack.includes(keyword)) ||
+        patterns.some(pattern => pattern.test(haystack));
     });
     if (!anyFamilyMatches) {
       return {

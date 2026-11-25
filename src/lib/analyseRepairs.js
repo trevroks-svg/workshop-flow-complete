@@ -10,7 +10,9 @@ import { entities } from '@/api/entities';
 import { extractPdfTextFromUrl } from '@/lib/extractPdfText';
 import { parseQuoteText } from '@/lib/quoteParser';
 import { checkPdfMatchesJob } from '@/lib/pdfJobMatch';
-import { applyTyreSetOfFourRule } from '@/lib/tyreRule';
+import { applyTyreSetOfFourRule, recomputeQuoteTotalAfterTyreRule } from '@/lib/tyreRule';
+import { resolveLabourRate } from '@/lib/labourRate';
+import { apiFetch } from '@/lib/apiFetch';
 
 const PART_LABELS = {
   air_filter: "Air Filter",
@@ -347,16 +349,25 @@ export function applyWorkshopControllerLabour(groups, request) {
 }
 
 function buildAnalysisResult(result, request, hasPdfText, pdfJobMatch = null) {
+  const groups = applyTyreSetOfFourRule(
+    initialiseGroups(result.groups || [], request),
+    result.line_items || [],
+    request
+  );
+  // The tyre rule reprices the groups; the parsed total is the pre-reprice
+  // figure (one tyre, $199), so recompute it or the panel shows the stale
+  // total (break B6).
+  const repricedTotal = recomputeQuoteTotalAfterTyreRule(
+    groups,
+    request,
+    resolveLabourRate(request?.labour_rate_ex_gst)
+  );
   return {
-    groups: applyTyreSetOfFourRule(
-      initialiseGroups(result.groups || [], request),
-      result.line_items || [],
-      request
-    ),
+    groups,
     pdfReadable: hasPdfText ? (result.pdf_was_readable ?? true) : false,
     notesUsed: result.notes_used_for_pricing ?? false,
     lineItems: result.line_items || [],
-    quoteTotalIncGst: result.quote_total_inc_gst ?? null,
+    quoteTotalIncGst: repricedTotal ?? result.quote_total_inc_gst ?? null,
     pdfJobMatch,
     pdfJobMismatch: pdfJobMatch?.status === 'mismatch' ? pdfJobMatch : null,
   };
@@ -395,7 +406,7 @@ export async function analyseRepairs(request, partsText) {
   }
 
   try {
-    const apiResponse = await fetch('/api/ai/analyse-repairs', {
+    const apiResponse = await apiFetch('/api/ai/analyse-repairs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ request: requestForAnalysis, partsText })
