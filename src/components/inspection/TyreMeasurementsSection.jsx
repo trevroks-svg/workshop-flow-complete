@@ -62,7 +62,7 @@ export default function TyreMeasurementsSection({ values = {}, onChange, readonl
             <TyreDrop label="Spare (optional)" value={values.spare} onChange={v => set('spare', v)} readonly={readonly} />
           </div>
           {!readonly && (
-            <p className="text-xs text-slate-400 mt-2">⚠️ Values of 2mm or below are highlighted red</p>
+            <p className="text-xs text-slate-400 mt-2">⚠️ Values of 2mm or below are highlighted red — tyres at 2mm or below are recommended for replacement as a set of four</p>
           )}
         </div>
         <div>

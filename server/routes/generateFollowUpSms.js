@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { toPlainAscii, SMS_ASCII_RULES } from '../lib/smsText.js';
 
 function isValidWorkItem(item) {
   return item && typeof item === 'object' && typeof item.repairName === 'string' && item.repairName.trim();
@@ -24,7 +25,7 @@ function buildPrompt(payload) {
     `- Repair: ${item.repairName}`,
     `  Parts: ${(item.parts || []).join(', ') || item.repairName}`,
     `  Parts ex GST: ${item.partsCostExGst == null ? 'TBC' : `$${Number(item.partsCostExGst).toFixed(2)}`}`,
-    `  Labour: ${item.labourHours == null ? 'not specified' : `${item.labourHours}h @ $${item.labourRate}/h ex GST`}`,
+    `  Labour: ${item.labourHours == null ? 'not specified' : `${item.labourHours}h @ $${item.labourRate}/h inc GST`}`,
     `  Total: ${formatMoney(item.totalIncGst)}`,
   ].join('\n')).join('\n\n');
 
@@ -46,7 +47,8 @@ STRICT RULES:
 3. Mention this is a follow-up, not a new quote.
 4. Use only the supplied repairs and prices. Never invent missing prices.
 5. If any price is missing, write "price TBC".
-6. End with: "Please reply YES to approve or call Fleurieu Motor Group Service on 08 8552 1255 to discuss."`;
+6. End with: "Please reply YES to approve or call Fleurieu Motor Group Service on 08 8552 1255 to discuss."
+${SMS_ASCII_RULES}`;
 }
 
 function getOpenAIClient(req) {
@@ -71,7 +73,7 @@ export default async function generateFollowUpSms(req, res) {
       input: buildPrompt(payload),
     });
 
-    const smsText = (response.output_text || '').trim();
+    const smsText = toPlainAscii((response.output_text || '').trim());
     if (!smsText) {
       return res.status(502).json({ success: false, error: 'OpenAI returned no SMS text' });
     }

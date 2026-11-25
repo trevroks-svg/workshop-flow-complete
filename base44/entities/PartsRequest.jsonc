@@ -305,7 +305,7 @@
     },
     "labour_rate_ex_gst": {
       "type": "number",
-      "description": "Labour rate per hour excluding GST in dollars"
+      "description": "Legacy field name — the value stored is the labour rate per hour inc GST in dollars"
     },
     "gst_percent": {
       "type": "number",

@@ -13,6 +13,7 @@ import { getStartOfToday, getStartOfMonth } from "@/lib/dateUtils";
 import { createPageUrl } from "@/utils";
 import RequestCard from "../components/RequestCard";
 import InspectionQueueCard from "../components/inspection/InspectionQueueCard";
+import JobScheduleUploader from "../components/JobScheduleUploader";
 
 export default function Dashboard() {
   const { user, isLoadingAuth: userLoading } = useAuth();
@@ -458,6 +459,12 @@ export default function Dashboard() {
             )}
             </div>
         </div>
+
+        {/* Daily job schedule — imported each morning so SMS drafts can match
+            job cards to customer names and vehicles */}
+        {(staffRole === 'service_manager' || isSuperOrAdmin) && (
+          <JobScheduleUploader />
+        )}
 
         {/* Stats Cards */}
         <div className={`grid gap-4 mb-8 ${effectiveRole === 'workshop_controller' ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-4'}`}>

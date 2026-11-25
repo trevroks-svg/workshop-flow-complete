@@ -1,6 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Clock } from "lucide-react";
+import { resolveLabourRate } from "@/lib/labourRate";
 
 const LABOUR_LABELS = {
   "0": "0 Hours",
@@ -12,8 +13,9 @@ const LABOUR_LABELS = {
 };
 
 export default function LabourSummaryPanel({ request, labourRate: labourRateProp }) {
-  const labourRateExGST = request.labour_rate_ex_gst || labourRateProp || 110;
-  const gstPercent = request.gst_percent || 10;
+  // Labour is charged inc GST. PartsRequest.labour_rate_ex_gst is a legacy
+  // column name — the value stored there is the inc-GST hourly rate.
+  const labourRateIncGst = resolveLabourRate(labourRateProp, request.labour_rate_ex_gst);
   const validLabourLines = Array.isArray(request.labour_lines)
     ? request.labour_lines.filter(line => Number.isFinite(Number(line.hours)))
     : [];
@@ -30,9 +32,7 @@ export default function LabourSummaryPanel({ request, labourRate: labourRateProp
   };
 
   const finalHours = getFinalHours();
-  const labourCostExGST = finalHours * labourRateExGST;
-  const labourGSTAmount = labourCostExGST * (gstPercent / 100);
-  const labourCostIncGST = labourCostExGST + labourGSTAmount;
+  const labourCostIncGst = finalHours * labourRateIncGst;
 
   if (!hasLabourLines && !request.labour_time_selection) {
     return null;
@@ -59,20 +59,12 @@ export default function LabourSummaryPanel({ request, labourRate: labourRateProp
             <span className="font-medium text-blue-900">{finalHours} hrs</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-blue-700">Labour Rate (Ex GST)</span>
-            <span className="font-medium text-blue-900">${labourRateExGST.toFixed(2)}/hr</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-blue-700">Labour Cost (Ex GST)</span>
-            <span className="font-medium text-blue-900">${labourCostExGST.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-blue-700">GST ({gstPercent}%)</span>
-            <span className="font-medium text-blue-900">${labourGSTAmount.toFixed(2)}</span>
+            <span className="text-blue-700">Labour Rate (Inc GST)</span>
+            <span className="font-medium text-blue-900">${labourRateIncGst.toFixed(2)}/hr</span>
           </div>
           <div className="flex justify-between text-base font-bold border-t border-blue-200 pt-3">
             <span className="text-blue-900">Labour Cost (Inc GST)</span>
-            <span className="text-blue-600 text-lg">${labourCostIncGST.toFixed(2)}</span>
+            <span className="text-blue-600 text-lg">${labourCostIncGst.toFixed(2)}</span>
           </div>
         </div>
         <p className="text-xs text-blue-600 mt-3">

@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/dateUtils";
 import { analyseRepairs } from "@/lib/analyseRepairs";
-import PrivateStorageLink from "@/components/PrivateStorageLink";
+import { resolveLabourRate } from "@/lib/labourRate";
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
@@ -69,7 +69,14 @@ function SMSRow({ request, user, labourRate, onFollowUpDone }) {
   const runAnalysis = async () => {
     setAnalysing(true);
     setAnalysisWarning(null);
-    const { groups: initialised, pdfReadable, notesUsed } = await analyseRepairs(request, partsText);
+    const { groups: initialised, pdfReadable, notesUsed, pdfJobMismatch } = await analyseRepairs(request, partsText);
+
+    if (pdfJobMismatch) {
+      setAnalysisWarning(`Quote PDF does not match this job — ${pdfJobMismatch.reason} No quote has been built from it. Check the attached PDF.`);
+      setGroups([]);
+      setAnalysing(false);
+      return [];
+    }
 
     if (!pdfReadable && !notesUsed) {
       setAnalysisWarning("PDF could not be read and no Parts Interpreter notes found. Parts prices are shown as TBC.");
@@ -84,6 +91,9 @@ function SMSRow({ request, user, labourRate, onFollowUpDone }) {
 
   // Step 2: Generate SMS from groups with proper parts + labour cost calculation
   const generateSms = async (groupsToUse) => {
+    // No groups means the quote could not be analysed (e.g. mismatched PDF)
+    // — the warning banner already explains why.
+    if (!groupsToUse || groupsToUse.length === 0) return;
     setGenerating(true);
     const aiUnavailableMessage = 'AI generation is unavailable. Created an editable follow-up SMS instead.';
     let fallbackText = `Hi there, following up on job ${jobCard}. The declined or unactioned work is: ${partsText || 'price TBC'}. Please reply YES to approve or call Fleurieu Motor Group Service on 08 8552 1255 to discuss.`;
@@ -92,9 +102,10 @@ function SMSRow({ request, user, labourRate, onFollowUpDone }) {
       const pricedGroups = groupsToUse.map(g => {
         const partsExGst = g.parts_cost_ex_gst;
         const labourHours = g.labour_hours;
-        const labourExGst = labourHours != null ? labourHours * labourRate : null;
-        const totalIncGst = (partsExGst != null && labourExGst != null)
-          ? (partsExGst + labourExGst) * gst
+        // Labour rate is inc GST, so it is added as-is; only parts get GST added.
+        const labourIncGst = labourHours != null ? labourHours * labourRate : null;
+        const totalIncGst = (partsExGst != null && labourIncGst != null)
+          ? partsExGst * gst + labourIncGst
           : null;
 
         return { ...g, totalIncGst };
@@ -193,11 +204,11 @@ function SMSRow({ request, user, labourRate, onFollowUpDone }) {
                 <Badge className="bg-amber-100 text-amber-700 border-0">No Response</Badge>
               )}
               {request.quote_pdf_url && (
-                <PrivateStorageLink objectPath={request.quote_pdf_url}>
+                <a href={request.quote_pdf_url} target="_blank" rel="noopener noreferrer">
                   <Badge className="bg-blue-100 text-blue-700 border-0 gap-1 cursor-pointer hover:bg-blue-200">
                     <FileText className="h-3 w-3" /> PDF Quote
                   </Badge>
-                </PrivateStorageLink>
+                </a>
               )}
             </div>
             <div className="text-sm text-slate-600 space-y-0.5">
@@ -258,11 +269,11 @@ function SMSRow({ request, user, labourRate, onFollowUpDone }) {
               {groups.map((g, i) => {
                 const partsExGst = g.parts_cost_ex_gst;
                 const labourHours = g.labour_hours;
-                const labourExGst = labourHours != null ? labourHours * labourRate : null;
+                // Labour rate is inc GST, so it is added as-is; only parts get GST added.
+                const labourIncGst = labourHours != null ? labourHours * labourRate : null;
                 const partsIncGst = partsExGst != null ? partsExGst * 1.1 : null;
-                const labourIncGst = labourExGst != null ? labourExGst * 1.1 : null;
-                const totalIncGst = (partsExGst != null && labourExGst != null)
-                  ? ((partsExGst + labourExGst) * 1.1) : null;
+                const totalIncGst = (partsExGst != null && labourIncGst != null)
+                  ? partsIncGst + labourIncGst : null;
 
                 return (
                   <div key={i} className="p-3 space-y-1.5">
@@ -277,6 +288,9 @@ function SMSRow({ request, user, labourRate, onFollowUpDone }) {
                       }
                     </div>
                     <p className="text-xs text-slate-400 ml-5">{(g.parts || []).join(' · ')}</p>
+                    {g.tyre_rule_note && (
+                      <p className="text-xs text-amber-700 ml-5">{g.tyre_rule_note}</p>
+                    )}
                     <div className="flex items-center gap-2 ml-5 flex-wrap">
                       <Label className="text-xs text-slate-500 whitespace-nowrap">Labour hrs</Label>
                       <Input
@@ -402,7 +416,7 @@ export default function FollowUpReport() {
     queryFn: () => entities.Business.filter({ id: businessId }).then(r => r[0] || null),
     enabled: !!businessId
   });
-  const labourRate = business?.default_labour_rate || 110;
+  const labourRate = resolveLabourRate(business?.default_labour_rate);
 
   const { data: allRequests = [], isLoading } = useQuery({
     queryKey: ['followUpRequests'],

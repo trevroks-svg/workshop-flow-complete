@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Building2, Loader2, Shield, Save, Users, Wrench } from "lucide-react";
 import { useBusinessContext } from "@/lib/useBusinessContext";
+import { DEFAULT_LABOUR_RATE_INC_GST } from "@/lib/labourRate";
 import { format } from "date-fns";
 
 const STATUS_COLORS = {
@@ -36,7 +37,7 @@ export default function BusinessSettings() {
         phone: business.phone || '',
         address: business.address || '',
         sms_sign_off: business.sms_sign_off || '',
-        default_labour_rate: business.default_labour_rate || 110,
+        default_labour_rate: business.default_labour_rate || DEFAULT_LABOUR_RATE_INC_GST,
         job_card_prefix: business.job_card_prefix || '',
         job_card_format_hint: business.job_card_format_hint || ''
       });
@@ -228,7 +229,7 @@ export default function BusinessSettings() {
                 min="0"
                 step="5"
               />
-              <span className="text-slate-500 text-sm">/ hour ex GST</span>
+              <span className="text-slate-500 text-sm">/ hour inc GST</span>
             </div>
           </CardContent>
         </Card>

@@ -40,6 +40,7 @@ Copy server/.env.example to server/.env and fill in:
 - SUPABASE_SERVICE_ROLE_KEY (from Supabase Settings → API → service_role key)
 - STRIPE_SECRET_KEY (from your existing Stripe setup)
 - RESEND_API_KEY (free at resend.com)
+- OPENAI_API_KEY (from platform.openai.com — needed for AI repair analysis, SMS drafts, recommendation text and labour analysis)
 
 Then run:
 ```

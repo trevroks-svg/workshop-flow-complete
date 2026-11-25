@@ -10,6 +10,7 @@ import { Building2, Loader2, CheckCircle, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import SubscribeButton from "@/components/SubscribeButton";
+import { DEFAULT_LABOUR_RATE_INC_GST } from "@/lib/labourRate";
 
 const STEPS = ['Business Details', 'Configuration', 'Done'];
 
@@ -24,7 +25,7 @@ export default function BusinessOnboarding() {
     contact_email: '',
     phone: '',
     address: '',
-    default_labour_rate: 110,
+    default_labour_rate: DEFAULT_LABOUR_RATE_INC_GST,
     sms_sign_off: '',
     job_card_prefix: '',
     job_card_format_hint: ''
@@ -141,7 +142,7 @@ export default function BusinessOnboarding() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label>Default Labour Rate (ex GST)</Label>
+                <Label>Default Labour Rate (inc GST)</Label>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-slate-400">$</span>
                   <Input type="number" value={form.default_labour_rate} onChange={e => setForm(p => ({ ...p, default_labour_rate: parseFloat(e.target.value) || 0 }))} className="w-32" min="0" step="5" />

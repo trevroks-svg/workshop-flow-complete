@@ -7,7 +7,6 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { uploadFile } from "@/api/storage";
 import { extractPdfText } from "@/lib/extractPdfText";
-import { parseQuoteText } from "@/lib/quoteParser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { toast } from "sonner";
 import { ArrowLeft, Upload, FileText, Download, Send, CheckCircle, Loader2, History, ExternalLink, RefreshCw, XCircle } from "lucide-react";
 import { createPageUrl } from "@/utils";
+import { resolveLabourRate } from "@/lib/labourRate";
 
 const parseIsoAssumeUtc = (value) => {
   if (!value) return null;
@@ -47,7 +47,6 @@ import LabourLineAnalyser from "../components/labour/LabourLineAnalyser";
 import LabourSummaryPanel from "../components/labour/LabourSummaryPanel";
 import PartsETASelector from "../components/parts/PartsETASelector";
 import PhotoGallery from "../components/photos/PhotoGallery";
-import PrivateStorageLink from "../components/PrivateStorageLink";
 import InspectionCard from "../components/inspection/InspectionCard";
 import CustomerDecisionDialog from "../components/CustomerDecisionDialog";
 import PartsInterpreterNotesEditor from "../components/PartsInterpreterNotesEditor";
@@ -77,7 +76,7 @@ export default function RequestDetail() {
     enabled: !!businessId
   });
 
-  const labourRate = business?.default_labour_rate || 110;
+  const labourRate = resolveLabourRate(business?.default_labour_rate);
 
   const { data: request, isLoading, refetch } = useQuery({
     queryKey: ['partsRequest', requestId],
@@ -188,25 +187,17 @@ export default function RequestDetail() {
         console.warn("Quote PDF text extraction failed:", error);
       }
 
-      const objectPath = await uploadFile(uploadPdfFile, 'quote-pdfs');
+      const file_url = await uploadFile(uploadPdfFile, 'quote-pdfs');
       const quotePdfExtractedAt = quotePdfText ? new Date().toISOString() : null;
-      const parsedQuote = quotePdfText ? parseQuoteText(quotePdfText) : null;
-      const validatedPricing = parsedQuote?.success ? {
-        quote_total: parsedQuote.result.quote_total_inc_gst,
-        parts_total_inc_gst: parsedQuote.result.quote_total_inc_gst,
-        parts_total_ex_gst: parsedQuote.result.parts_total_ex_gst ??
-          parsedQuote.result.groups.reduce((sum, group) => sum + group.parts_cost_ex_gst, 0)
-      } : {};
 
       await updateStatusMutation.mutateAsync({
         newStatus: "quoted",
         additionalData: {
-          quote_pdf_url: objectPath,
+          quote_pdf_url: file_url,
           ...(quotePdfText ? {
             quote_pdf_text: quotePdfText,
             quote_pdf_extracted_at: quotePdfExtractedAt
           } : {}),
-          ...validatedPricing,
           parts_interpreter_email: user.email
         },
         notificationType: "quote_returned",
@@ -552,14 +543,16 @@ export default function RequestDetail() {
                 <div>
                   <p className="font-medium text-slate-900">Quote PDF</p>
                 </div>
-                <PrivateStorageLink
-                  objectPath={request.quote_pdf_url}
+                <a
+                  href={request.quote_pdf_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors"
                 >
                   <Download className="h-5 w-5" />
                   View PDF
                   <ExternalLink className="h-4 w-4" />
-                </PrivateStorageLink>
+                </a>
               </div>
             </CardContent>
           </Card>

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import generateFollowUpSms from './generateFollowUpSms.js';
+import generateFollowUpSms, { buildPrompt } from './generateFollowUpSms.js';
 
 const validPayload = {
   customerName: 'Test Customer',
@@ -14,11 +14,11 @@ const validPayload = {
       parts: ['Air Filter AF-1087 x1'],
       partsCostExGst: 18.5,
       labourHours: 0.5,
-      labourRate: 110,
-      totalIncGst: 80.85,
+      labourRate: 190,
+      totalIncGst: 115.35, // parts $18.50 ex GST ($20.35 inc) + 0.5h labour at $190 inc GST ($95)
     },
   ],
-  totalIncGst: 80.85,
+  totalIncGst: 115.35,
 };
 
 function callRoute(body, { openaiClient } = {}) {
@@ -95,4 +95,22 @@ test('generate-follow-up-sms returns fallback-safe failure response when OpenAI 
   assert.equal(response.data.success, false);
   assert.equal(response.data.error, 'mock OpenAI failure');
   assert.equal(response.data.smsText, undefined);
+});
+
+test('generate-follow-up-sms charges labour inc GST and returns plain-ASCII text', async () => {
+  let capturedPrompt = '';
+  const openaiClient = {
+    responses: {
+      create: async ({ input }) => {
+        capturedPrompt = input;
+        return { output_text: 'Hi — it’s a follow-up…' };
+      },
+    },
+  };
+
+  const response = await callRoute(validPayload, { openaiClient });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.data.smsText, `Hi - it's a follow-up...`);
+  assert.equal(buildPrompt(validPayload).includes('0.5h @ $190/h inc GST'), true);
 });

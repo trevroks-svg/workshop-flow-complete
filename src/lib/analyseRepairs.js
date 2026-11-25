@@ -8,8 +8,9 @@
 
 import { entities } from '@/api/entities';
 import { extractPdfTextFromUrl } from '@/lib/extractPdfText';
-import { createSignedFileUrl } from '@/api/storage';
 import { parseQuoteText } from '@/lib/quoteParser';
+import { checkPdfMatchesJob } from '@/lib/pdfJobMatch';
+import { applyTyreSetOfFourRule } from '@/lib/tyreRule';
 
 const PART_LABELS = {
   air_filter: "Air Filter",
@@ -63,8 +64,7 @@ async function recoverQuotePdfText(request) {
   }
 
   try {
-    const quotePdfUrl = await createSignedFileUrl(hydratedRequest.quote_pdf_url);
-    const quotePdfText = await extractPdfTextFromUrl(quotePdfUrl);
+    const quotePdfText = await extractPdfTextFromUrl(hydratedRequest.quote_pdf_url);
     if (!quotePdfText) return hydratedRequest;
 
     const quotePdfExtractedAt = new Date().toISOString();
@@ -346,29 +346,20 @@ export function applyWorkshopControllerLabour(groups, request) {
   }));
 }
 
-function buildAnalysisResult(result, request, hasPdfText) {
+function buildAnalysisResult(result, request, hasPdfText, pdfJobMatch = null) {
   return {
-    groups: initialiseGroups(result.groups || [], request),
+    groups: applyTyreSetOfFourRule(
+      initialiseGroups(result.groups || [], request),
+      result.line_items || [],
+      request
+    ),
     pdfReadable: hasPdfText ? (result.pdf_was_readable ?? true) : false,
     notesUsed: result.notes_used_for_pricing ?? false,
     lineItems: result.line_items || [],
     quoteTotalIncGst: result.quote_total_inc_gst ?? null,
-    partsTotalExGst: result.parts_total_ex_gst ?? null,
-    gst: result.gst ?? null,
-    deterministicPricing: false
+    pdfJobMatch,
+    pdfJobMismatch: pdfJobMatch?.status === 'mismatch' ? pdfJobMatch : null,
   };
-}
-
-async function persistValidatedQuotePricing(request, result) {
-  if (!request.id || result.quote_total_inc_gst == null) return;
-  const partsTotalExGst = result.parts_total_ex_gst ??
-    (result.groups || []).reduce((sum, group) => sum + Number(group.parts_cost_ex_gst || 0), 0);
-
-  await entities.PartsRequest.update(request.id, {
-    quote_total: result.quote_total_inc_gst,
-    parts_total_inc_gst: result.quote_total_inc_gst,
-    parts_total_ex_gst: partsTotalExGst
-  });
 }
 
 /**
@@ -382,15 +373,25 @@ export async function analyseRepairs(request, partsText) {
   const rulesAnalysis = parseQuoteText(requestForAnalysis.quote_pdf_text);
 
   if (rulesAnalysis.success) {
-    try {
-      await persistValidatedQuotePricing(requestForAnalysis, rulesAnalysis.result);
-    } catch (error) {
-      console.warn('Could not save validated quote pricing:', error);
+    // A mismatched quote PDF must never be used to build a quote — a real
+    // trial caught a battery quote attached to a tyres job.
+    const pdfJobMatch = checkPdfMatchesJob(
+      requestForAnalysis,
+      requestForAnalysis.quote_pdf_text,
+      rulesAnalysis.result.line_items
+    );
+    if (pdfJobMatch.status === 'mismatch') {
+      return {
+        groups: [],
+        pdfReadable: hasPdfText,
+        notesUsed: false,
+        lineItems: [],
+        quoteTotalIncGst: null,
+        pdfJobMatch,
+        pdfJobMismatch: pdfJobMatch,
+      };
     }
-    return {
-      ...buildAnalysisResult(rulesAnalysis.result, requestForAnalysis, hasPdfText),
-      deterministicPricing: true
-    };
+    return buildAnalysisResult(rulesAnalysis.result, requestForAnalysis, hasPdfText, pdfJobMatch);
   }
 
   try {
@@ -402,16 +403,33 @@ export async function analyseRepairs(request, partsText) {
     if (!apiResponse.ok) throw new Error(`AI analysis failed (${apiResponse.status})`);
 
     const apiData = await apiResponse.json();
-    if (!apiData.success) throw new Error(apiData.error || 'AI analysis failed');
+    if (!apiData.success) {
+      // The server refused to build a quote (e.g. mismatched PDF). Surface
+      // the reason instead of falling back to unpriced groups.
+      if (apiData.pdf_job_match?.status === 'mismatch') {
+        return {
+          groups: [],
+          pdfReadable: hasPdfText,
+          notesUsed: !!(requestForAnalysis.parts_interpreter_notes || '').trim(),
+          lineItems: [],
+          quoteTotalIncGst: null,
+          pdfJobMatch: apiData.pdf_job_match,
+          pdfJobMismatch: apiData.pdf_job_match,
+        };
+      }
+      throw new Error(apiData.error || 'AI analysis failed');
+    }
 
     const result = apiData.result || {};
-    return buildAnalysisResult(result, requestForAnalysis, hasPdfText);
+    return buildAnalysisResult(result, requestForAnalysis, hasPdfText, apiData.pdf_job_match || null);
   } catch (error) {
     console.error('AI repair analysis failed:', error);
     return {
       groups: fallbackGroups(requestForAnalysis),
       pdfReadable: hasPdfText,
-      notesUsed: !!(requestForAnalysis.parts_interpreter_notes || '').trim()
+      notesUsed: !!(requestForAnalysis.parts_interpreter_notes || '').trim(),
+      pdfJobMatch: null,
+      pdfJobMismatch: null
     };
   }
 }

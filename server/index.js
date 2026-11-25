@@ -12,11 +12,20 @@
  *   STRIPE_SECRET_KEY
  *   STRIPE_WEBHOOK_SECRET
  *   RESEND_API_KEY
+ *   FROM_EMAIL                  (optional, sender for notification emails)
  *   OPENAI_API_KEY
+ *   OPENAI_ANALYSE_REPAIRS_MODEL   (optional, defaults to gpt-5.4-nano)
+ *   OPENAI_FOLLOW_UP_SMS_MODEL    (optional, defaults to gpt-5.4-nano)
+ *   OPENAI_ADVISOR_SMS_MODEL      (optional, defaults to gpt-5.4-nano)
+ *   OPENAI_RECOMMENDATION_MODEL   (optional, defaults to gpt-5.4-nano)
+ *   OPENAI_LABOUR_MODEL           (optional, defaults to gpt-5.4-nano)
+ *   CRON_SECRET                 (optional, shared secret for /api/check-overdue-requests)
+ *   CLIENT_URL                  (optional, defaults to http://localhost:5173)
  *   PORT                        (optional, defaults to 3001)
+ * See server/.env.example for placeholders.
  */
 
-import './env.js';
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 
@@ -28,7 +37,10 @@ import createCheckoutSession    from './routes/createCheckoutSession.js';
 import stripeWebhook            from './routes/stripeWebhook.js';
 import analyseRepairs           from './routes/analyseRepairs.js';
 import generateFollowUpSms      from './routes/generateFollowUpSms.js';
-import generateWorkshopText     from './routes/generateWorkshopText.js';
+import generateAdvisorSms       from './routes/generateAdvisorSms.js';
+import generateRecommendation   from './routes/generateRecommendation.js';
+import analyseLabour            from './routes/analyseLabour.js';
+import { importJobSchedule, matchJobSchedule, jobScheduleStatus } from './routes/jobSchedule.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -49,7 +61,12 @@ app.post('/api/create-checkout-session',     createCheckoutSession);
 app.post('/api/stripe-webhook',              stripeWebhook);
 app.post('/api/ai/analyse-repairs',          analyseRepairs);
 app.post('/api/ai/generate-follow-up-sms',   generateFollowUpSms);
-app.post('/api/ai/generate-workshop-text',   generateWorkshopText);
+app.post('/api/ai/generate-advisor-sms',     generateAdvisorSms);
+app.post('/api/ai/generate-recommendation',  generateRecommendation);
+app.post('/api/ai/analyse-labour',           analyseLabour);
+app.post('/api/job-schedule/import',         importJobSchedule);
+app.get('/api/job-schedule/match',           matchJobSchedule);
+app.get('/api/job-schedule/status',          jobScheduleStatus);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

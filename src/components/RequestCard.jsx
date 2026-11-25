@@ -1,5 +1,4 @@
 import React from 'react';
-import PrivateStorageLink from './PrivateStorageLink';
 import { Link } from 'react-router-dom';
 import { Card } from "@/components/ui/card";
 import { Package, Clock, User, ChevronRight, Download } from "lucide-react";
@@ -64,14 +63,16 @@ export default function RequestCard({ request, showPdfLink = false }) {
 
             {showPdfLink && request.quote_pdf_url && (
               <div className="mt-2">
-                <PrivateStorageLink
-                  objectPath={request.quote_pdf_url}
+                <a
+                  href={request.quote_pdf_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
                   className="inline-flex items-center gap-1.5 text-xs text-purple-700 hover:text-purple-900 font-medium bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-md transition-colors"
                 >
                   <Download className="h-3 w-3" />
                   View Quote PDF
-                </PrivateStorageLink>
+                </a>
               </div>
             )}
           </div>

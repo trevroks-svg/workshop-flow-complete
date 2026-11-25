@@ -32,3 +32,6 @@ test-results
 .env
 .env
 server/.env
+
+# But the example env file is a template with placeholders — it must be committed.
+!server/.env.example

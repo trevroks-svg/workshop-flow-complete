@@ -111,11 +111,8 @@ function parseTuneExtractedRow(row) {
   const unitPriceExGst = trailingUnitPrice ?? leadingUnitPrice;
   const expectedTotal = roundCurrency((unitPriceExGst || 0) * (quantity || 0));
 
-  const extractedDescription = match[5].trim();
-  const description = extractedDescription.replace(/^[A-Z]*\d[A-Z0-9-]*\s+(?=[A-Z][A-Z0-9 ,&().,+/-]*$)/i, '');
-
   return {
-    description,
+    description: match[5].trim(),
     part_number: match[6].trim(),
     quantity,
     unit_price_ex_gst: unitPriceExGst,
@@ -126,13 +123,8 @@ function parseTuneExtractedRow(row) {
   };
 }
 
-function stripTuneRowFooterMetadata(row) {
-  return row.replace(/\s+(?:Rego\/VIN|Registration\/VIN|Rego|VIN)\s*:\s*.*$/i, '').trim();
-}
-
 function parseTuneLineItems(text) {
   return getTuneRows(text)
-    .map(row => stripTuneRowFooterMetadata(row))
     .map(row => parseTuneStandardRow(row) || parseTuneExtractedRow(row))
     .filter(Boolean);
 }

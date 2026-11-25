@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Sparkles, Copy, Loader2, CheckCircle, ClipboardList, RefreshCw, Wrench, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import { analyseRepairs, applyWorkshopControllerLabour, mergeRelatedRepairGroups } from "@/lib/analyseRepairs";
+import { resolveLabourRate } from "@/lib/labourRate";
+import { toPlainAscii } from "@/lib/smsText";
 
 const PART_TYPE_LABELS = {
   air_filter: "Air Filter",
@@ -57,14 +59,27 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
     }
   });
 
-  const labourRate = labourRateProp || request.labour_rate_ex_gst || 110;
+  // Labour is charged inc GST. PartsRequest.labour_rate_ex_gst is a legacy
+  // column name — the value stored there is the inc-GST hourly rate.
+  const labourRate = resolveLabourRate(labourRateProp, request.labour_rate_ex_gst);
 
   const [analysisWarning, setAnalysisWarning] = useState(null);
+  const [pdfMismatch, setPdfMismatch] = useState(null);
 
   const analyseRepairGroups = async () => {
     setAnalysisWarning(null);
+    setPdfMismatch(null);
     const partsText = getPartsText(request.parts);
-    const { groups: initialised, pdfReadable, notesUsed } = await analyseRepairs(request, partsText);
+    const { groups: initialised, pdfReadable, notesUsed, pdfJobMismatch } = await analyseRepairs(request, partsText);
+
+    if (pdfJobMismatch) {
+      setPdfMismatch(pdfJobMismatch);
+      setAnalysisWarning(`Quote PDF does not match this job — ${pdfJobMismatch.reason} No recommendation has been built from it. Check the attached PDF.`);
+      setGroups([]);
+      setShowGroups(true);
+      return [];
+    }
+
     const mergedGroups = mergeRelatedRepairGroups(initialised);
     const groupsWithSelectedLabour = applyWorkshopControllerLabour(mergedGroups, request);
 
@@ -92,18 +107,21 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
     ));
   };
 
-  // Step 2: Generate recommendation text from groups
+  // Step 2: Generate recommendation text from groups.
+  // Invoice notes quote the fitted total only — never "plus fitting" and
+  // never break parts and labour out separately.
   const buildFallbackRecommendation = (groupsToUse) => {
     const gst = 1.1;
     return groupsToUse.map(g => {
       const partsIncGst = g.parts_cost_ex_gst != null ? g.parts_cost_ex_gst * gst : null;
-      const labourIncGst = g.labour_hours != null ? g.labour_hours * labourRate * gst : null;
+      // Labour rate is inc GST.
+      const labourIncGst = g.labour_hours != null ? g.labour_hours * labourRate : null;
       const totalIncGst = partsIncGst != null && labourIncGst != null ? partsIncGst + labourIncGst : null;
       if (totalIncGst != null) {
-        return `Recommend ${g.repair_name}: Parts $${partsIncGst.toFixed(2)} + Labour $${labourIncGst.toFixed(2)} = Total $${totalIncGst.toFixed(2)} inc GST.`;
+        return `Recommend ${g.repair_name}: $${totalIncGst.toFixed(2)} inc GST (fitted).`;
       }
       if (partsIncGst != null) {
-        return `Recommend ${g.repair_name}: Parts $${partsIncGst.toFixed(2)} inc GST.`;
+        return `Recommend ${g.repair_name}: Parts $${partsIncGst.toFixed(2)} inc GST, labour TBC.`;
       }
       return `Recommend ${g.repair_name}: Parts price TBC.`;
     }).join('\n');
@@ -111,6 +129,9 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
 
   // Step 2: Generate recommendation text from groups
   const generateText = async (groupsToUse) => {
+    // No groups means the quote could not be analysed (e.g. mismatched PDF)
+    // — the warning banner already explains why.
+    if (!groupsToUse || groupsToUse.length === 0) return;
     setGenerating(true);
     const gst = 1.1;
 
@@ -118,17 +139,17 @@ export default function RecommendationTextGenerator({ request, labourRate: labou
       const partsExGst = g.parts_cost_ex_gst;
       const partsIncGst = partsExGst != null ? partsExGst * gst : null;
       const labourHours = g.labour_hours;
-      const labourExGst = labourHours != null ? labourHours * labourRate : null;
-      const labourIncGst = labourExGst != null ? labourExGst * gst : null;
-      const totalIncGst = (partsExGst != null && labourExGst != null)
-        ? ((partsExGst + labourExGst) * gst).toFixed(2)
+      // Labour rate is inc GST.
+      const labourIncGst = labourHours != null ? labourHours * labourRate : null;
+      const totalIncGst = (partsExGst != null && labourIncGst != null)
+        ? (partsIncGst + labourIncGst).toFixed(2)
         : null;
 
       return `Repair: ${g.repair_name}
   Parts: ${g.parts.join(', ')}
   Parts cost (ex GST): ${partsExGst != null ? `$${partsExGst.toFixed(2)}` : 'TBC'}
   Parts cost (inc GST): ${partsIncGst != null ? `$${partsIncGst.toFixed(2)}` : 'TBC'}
-  Labour: ${labourHours != null ? `${labourHours}h @ $${labourRate}/h ex GST = $${labourIncGst?.toFixed(2)} inc GST` : 'not specified'}
+  Labour: ${labourHours != null ? `${labourHours}h @ $${labourRate}/h inc GST = $${labourIncGst?.toFixed(2)} inc GST` : 'not specified'}
   Total (inc GST): ${totalIncGst ? `$${totalIncGst}` : 'TBC'}`;
     }).join('\n\n');
 
@@ -141,26 +162,27 @@ ${repairLines}
 
 STRICT RULES:
 1. List each repair job separately on its own line/sentence
-2. For each job use format: "Recommend [repair name]: Parts $X.XX + Labour $X.XX = Total $X.XX inc GST"
-3. If labour not specified for a job, just state the parts price inc GST
+2. For each job use format: "Recommend [repair name]: $X.XX inc GST (fitted)" — quote the fitted total only, never break parts and labour out separately and never write "plus fitting"
+3. If labour not specified for a job, just state the parts price inc GST with "labour TBC"
 4. If price is TBC, write "Parts price TBC"
 5. Professional, factual, neutral tone — no marketing language
-6. Output ONLY the recommendation text, nothing else
+6. If two options are listed for the same repair (for example two tyre brands or prices), include BOTH options with their fitted totals so the customer can choose
+7. Use plain ASCII characters only - no em dashes, curly apostrophes, curly quotes or other special characters
+8. Output ONLY the recommendation text, nothing else
 
 Generate now:`;
 
     try {
-      const apiResponse = await fetch('/api/ai/generate-workshop-text', {
+      // AI generation runs on the server (the API key lives there) — never
+      // from the browser. Falls back to local text if it fails.
+      const apiResponse = await fetch('/api/ai/generate-recommendation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'recommendation',
-          repairLines
-        })
+        body: JSON.stringify({ prompt })
       });
       if (!apiResponse.ok) throw new Error(`AI recommendation failed (${apiResponse.status})`);
       const apiData = await apiResponse.json();
-      const result = apiData.text?.trim() || buildFallbackRecommendation(groupsToUse);
+      const result = toPlainAscii(apiData.text?.trim() || '') || buildFallbackRecommendation(groupsToUse);
       setRecText(result);
       await updateMutation.mutateAsync({ recommendation_text: result });
       toast.success("Recommendation generated");
@@ -264,10 +286,11 @@ Generate now:`;
             {showGroups && (
               <div className="divide-y divide-slate-100">
                 {groups.map((g, i) => {
-                  const labourExGst = g.labour_hours != null ? g.labour_hours * labourRate : null;
+                  // Labour rate is inc GST.
+                  const labourIncGst = g.labour_hours != null ? g.labour_hours * labourRate : null;
                   const partsIncGst = g.parts_cost_ex_gst != null ? g.parts_cost_ex_gst * 1.1 : null;
-                  const totalIncGst = (g.parts_cost_ex_gst != null && labourExGst != null)
-                    ? ((g.parts_cost_ex_gst + labourExGst) * 1.1) : null;
+                  const totalIncGst = (g.parts_cost_ex_gst != null && labourIncGst != null)
+                    ? (partsIncGst + labourIncGst) : null;
 
                   return (
                     <div key={i} className="p-4 space-y-2">
@@ -278,6 +301,9 @@ Generate now:`;
                         )}
                       </div>
                       <p className="text-xs text-slate-500">{g.parts.join(' · ')}</p>
+                      {g.tyre_rule_note && (
+                        <p className="text-xs text-amber-700">{g.tyre_rule_note}</p>
+                      )}
                       <div className="flex items-center gap-3 flex-wrap">
                         <div className="flex items-center gap-2">
                           <Label className="text-xs text-slate-500 whitespace-nowrap">Labour hrs</Label>
@@ -296,7 +322,7 @@ Generate now:`;
                         </div>
                         <div className="text-xs text-slate-400 flex gap-3">
                           {partsIncGst != null && <span>Parts: ${partsIncGst.toFixed(2)}</span>}
-                          {labourExGst != null && <span>Labour: ${(labourExGst * 1.1).toFixed(2)}</span>}
+                          {labourIncGst != null && <span>Labour: ${labourIncGst.toFixed(2)}</span>}
                         </div>
                       </div>
                     </div>
@@ -311,7 +337,7 @@ Generate now:`;
         {groups && (
           <Button
             onClick={() => generateText(groups)}
-            disabled={generating}
+            disabled={generating || !!pdfMismatch}
             className="gap-2 bg-teal-600 hover:bg-teal-700"
           >
             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}

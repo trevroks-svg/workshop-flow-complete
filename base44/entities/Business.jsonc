@@ -62,7 +62,7 @@
     },
     "default_labour_rate": {
       "type": "number",
-      "description": "Default hourly labour rate ex GST in dollars"
+      "description": "Default hourly labour rate inc GST in dollars (default 190)"
     },
     "logo_url": {
       "type": "string",

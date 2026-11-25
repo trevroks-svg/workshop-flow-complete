@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Clock, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { resolveLabourRate } from "@/lib/labourRate";
 
 const LABOUR_OPTIONS = [
   { value: "0", label: "0 Hours" },
@@ -25,7 +26,9 @@ export default function LabourTimeSelector({ request, user, labourRate: labourRa
   const [customHours, setCustomHours] = useState(request.labour_time_custom_hours || "");
   const [changeNote, setChangeNote] = useState("");
 
-  const labourRateExGST = labourRateProp || request.labour_rate_ex_gst || 110;
+  // Labour is charged inc GST. PartsRequest.labour_rate_ex_gst is a legacy
+  // column name — the value stored there is the inc-GST hourly rate.
+  const labourRateIncGst = resolveLabourRate(labourRateProp, request.labour_rate_ex_gst);
   const gstPercent = 10;
 
   const updateMutation = useMutation({
@@ -53,7 +56,8 @@ export default function LabourTimeSelector({ request, user, labourRate: labourRa
 
       await entities.PartsRequest.update(request.id, {
         ...data,
-        labour_rate_ex_gst: labourRateExGST,
+        // Legacy column name; the value is the inc-GST hourly rate.
+        labour_rate_ex_gst: labourRateIncGst,
         gst_percent: gstPercent,
         labour_change_log: [...(request.labour_change_log || []), logEntry]
       });
@@ -161,7 +165,7 @@ export default function LabourTimeSelector({ request, user, labourRate: labourRa
         )}
 
         <p className="text-xs text-slate-500">
-          Labour is charged at ${labourRateExGST.toFixed(2)} per hour (ex GST). GST calculated automatically.
+          Labour is charged at ${labourRateIncGst.toFixed(2)} per hour (inc GST).
         </p>
 
         {/* Optional change note */}

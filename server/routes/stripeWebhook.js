@@ -9,12 +9,10 @@
 import Stripe from 'stripe';
 import { supabaseAdmin } from '../supabaseAdmin.js';
 
+const stripe        = new Stripe(process.env.STRIPE_SECRET_KEY);
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
 export default async function stripeWebhook(req, res) {
-  if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
-    return res.status(503).json({ error: 'Stripe webhook is not configured' });
-  }
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   const signature = req.headers['stripe-signature'];
 
   let event;

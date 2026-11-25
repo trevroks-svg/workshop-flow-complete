@@ -1,5 +1,7 @@
 import OpenAI from 'openai';
 import { parseQuoteText } from '../lib/quoteParser.js';
+import { checkPdfMatchesJob } from '../lib/pdfJobMatch.js';
+import { applyTyreSetOfFourRule, TYRE_REPLACEMENT_TREAD_MM } from '../lib/tyreRule.js';
 
 const repairAnalysisSchema = {
   type: 'object',
@@ -78,16 +80,28 @@ function buildDataContext(request, partsText) {
 
 function buildPrompt(request, partsText) {
   const context = buildDataContext(request, partsText);
+  const jobCard = request?.job_card_number || 'not supplied';
+  const vehicle = request?.vehicle_type || 'not specified';
+  const requestedParts = (request?.parts || [])
+    .map(part => part.part_type || '')
+    .filter(Boolean)
+    .join(', ') || 'not specified';
 
   return `You are an experienced Australian automotive workshop service advisor assistant.
 
 Extract parts quote data from the provided text, then group related line items into customer-facing repair jobs.
+
+JOB CARD: ${jobCard}
+VEHICLE: ${vehicle}
+REQUESTED PARTS: ${requestedParts}
 
 DATA:
 ${context || '(no quote text, notes, or parts list provided)'}
 
 Rules:
 - Use the PDF quote text as the primary pricing source when present.
+- Check the quote belongs to this job: if the PDF text shows a different job card number, or parts for a different repair than the requested parts, do not use it for pricing — set quote_total_inc_gst to null.
+- Tyres: if any road tyre tread is at or below ${TYRE_REPLACEMENT_TREAD_MM}mm, recommend replacement as a set of four tyres, never just the worn ones.
 - If PDF text is missing or has no explicit prices, use Parts Interpreter notes for pricing.
 - Never invent or estimate a parts price.
 - If a part line gives unit price ex GST and GST, preserve those values.
@@ -139,11 +153,36 @@ export default async function analyseRepairs(req, res) {
 
     const rulesAnalysis = parseQuoteText(requestForAnalysis.quote_pdf_text);
     if (rulesAnalysis.success) {
+      // A mismatched quote PDF must never be used to build a quote — a real
+      // trial caught a battery quote attached to a tyres job.
+      const pdfJobMatch = checkPdfMatchesJob(
+        requestForAnalysis,
+        requestForAnalysis.quote_pdf_text,
+        rulesAnalysis.result.line_items
+      );
+      if (pdfJobMatch.status === 'mismatch') {
+        return res.json({
+          success: false,
+          source: 'rules',
+          confidence: rulesAnalysis.confidence,
+          error: `Quote PDF does not match this job: ${pdfJobMatch.reason}`,
+          pdf_job_match: pdfJobMatch,
+        });
+      }
+
       return res.json({
         success: true,
         source: 'rules',
         confidence: rulesAnalysis.confidence,
-        result: rulesAnalysis.result,
+        pdf_job_match: pdfJobMatch,
+        result: {
+          ...rulesAnalysis.result,
+          groups: applyTyreSetOfFourRule(
+            rulesAnalysis.result.groups,
+            rulesAnalysis.result.line_items,
+            requestForAnalysis
+          ),
+        },
       });
     }
 
@@ -173,7 +212,33 @@ export default async function analyseRepairs(req, res) {
       return res.status(502).json({ success: false, error: 'OpenAI returned no structured analysis' });
     }
 
-    return res.json({ success: true, source: 'openai', confidence: null, result });
+    // Same guards as the rules path: never build a quote from a PDF that
+    // belongs to another job, and price worn tyres as a set of four.
+    const pdfJobMatch = checkPdfMatchesJob(
+      requestForAnalysis,
+      requestForAnalysis.quote_pdf_text,
+      result.line_items || []
+    );
+    if (pdfJobMatch.status === 'mismatch') {
+      return res.json({
+        success: false,
+        source: 'openai',
+        confidence: null,
+        error: `Quote PDF does not match this job: ${pdfJobMatch.reason}`,
+        pdf_job_match: pdfJobMatch,
+      });
+    }
+
+    return res.json({
+      success: true,
+      source: 'openai',
+      confidence: null,
+      pdf_job_match: pdfJobMatch,
+      result: {
+        ...result,
+        groups: applyTyreSetOfFourRule(result.groups || [], result.line_items || [], requestForAnalysis),
+      },
+    });
   } catch (err) {
     console.error('analyseRepairs route error:', err);
     return res.status(500).json({ success: false, error: err.message || 'AI repair analysis failed' });

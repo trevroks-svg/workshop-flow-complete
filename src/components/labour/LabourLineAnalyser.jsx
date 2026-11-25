@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Sparkles, Save, Edit2, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PART_TYPES } from '../PartsSelector';
+import { resolveLabourRate } from '@/lib/labourRate';
 
 const getPartLabel = (part) => {
   if (part.other_description) return part.other_description;
@@ -32,7 +33,8 @@ export default function LabourLineAnalyser({ request, labourRate, onUpdate }) {
   }, [request.id]);
 
   const totalHours = lines.reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0);
-  const totalCost = totalHours * (labourRate || 110);
+  // Labour is charged inc GST.
+  const totalCost = totalHours * resolveLabourRate(labourRate);
 
   const buildFallbackLines = () => request.parts.map(part => ({
     part_type: part.part_type || '',
@@ -71,13 +73,15 @@ Return a JSON object with a "lines" array. Each item must have:
 Be concise and practical. Use standard flat-rate times. Return ONLY the JSON.`;
 
     try {
-      const apiResponse = await fetch('https://api.anthropic.com/v1/messages', {
+      // AI analysis runs on the server (the API key lives there) — never
+      // from the browser. Falls back to local lines if it fails.
+      const apiResponse = await fetch('/api/ai/analyse-labour', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] })
+        body: JSON.stringify({ prompt })
       });
       if (!apiResponse.ok) throw new Error(`AI labour analysis failed (${apiResponse.status})`);
       const apiData = await apiResponse.json();
-      const result = parseJsonObject(apiData.content?.[0]?.text || '') || {};
+      const result = parseJsonObject(apiData.text || '') || {};
 
       const suggested = (result.lines || []).map((l, i) => ({
         part_type: request.parts[i]?.part_type || '',
@@ -191,7 +195,7 @@ Be concise and practical. Use standard flat-rate times. Return ONLY the JSON.`;
                 <span className="text-sm font-medium text-violet-900">Total Labour</span>
                 <div className="text-right">
                   <p className="text-sm font-bold text-violet-900">{totalHours.toFixed(1)} hrs</p>
-                  <p className="text-xs text-violet-600">${totalCost.toFixed(2)} ex GST</p>
+                  <p className="text-xs text-violet-600">${totalCost.toFixed(2)} inc GST</p>
                 </div>
               </div>
 

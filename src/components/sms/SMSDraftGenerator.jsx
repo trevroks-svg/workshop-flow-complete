@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { entities } from '@/api/entities';
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,9 @@ import { toast } from "sonner";
 import { Sparkles, Copy, Loader2, CheckCircle, MessageSquare, RefreshCw, Wrench, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { analyseRepairs, applyWorkshopControllerLabour, mergeRelatedRepairGroups } from "@/lib/analyseRepairs";
+import { resolveLabourRate } from "@/lib/labourRate";
+import { toPlainAscii, SMS_ASCII_RULES } from "@/lib/smsText";
+import { scheduleRowToCustomer } from "@/lib/jobSchedule";
 
 const PART_TYPE_LABELS = {
   air_filter: "Air Filter",
@@ -38,24 +41,15 @@ const getValidPartsTotal = (value) => {
   return Number.isFinite(total) && total > 0 ? total : null;
 };
 
-const getGroupPricing = (group, request, groups, labourRate, gst, manualPartsTotal = null) => {
+const getGroupPricing = (group, request, groups, labourRate, gst) => {
   if (!hasKnownLabour(group)) return null;
 
-  const labourIncGst = group.labour_hours * labourRate * gst;
-  if (groups.length === 1 && manualPartsTotal != null) {
-    return {
-      partsIncGst: manualPartsTotal,
-      partsCostExGst: manualPartsTotal / gst,
-      labourIncGst,
-      totalIncGst: manualPartsTotal + labourIncGst,
-      source: 'manual_override'
-    };
-  }
+  // Labour rate is inc GST, so it is added as-is; only parts get GST added.
+  const labourIncGst = group.labour_hours * labourRate;
   if (group.parts_cost_ex_gst != null) {
     const partsIncGst = group.parts_cost_ex_gst * gst;
     return {
       partsIncGst,
-      partsCostExGst: group.parts_cost_ex_gst,
       labourIncGst,
       totalIncGst: partsIncGst + labourIncGst,
       source: 'parts_ex_gst'
@@ -67,7 +61,6 @@ const getGroupPricing = (group, request, groups, labourRate, gst, manualPartsTot
 
   return {
     partsIncGst: quoteTotalIncGst,
-    partsCostExGst: quoteTotalIncGst / gst,
     labourIncGst,
     totalIncGst: quoteTotalIncGst + labourIncGst,
     source: 'quote_total'
@@ -89,11 +82,8 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
   const [customerName, setCustomerName] = useState(request.customer_name || "");
   const [vehicleType, setVehicleType] = useState(request.vehicle_type || request.vehicle_details || "");
   const [partsTotalIncGst, setPartsTotalIncGst] = useState(
-    request.parts_total_inc_gst != null
-      ? String(request.parts_total_inc_gst)
-      : request.quote_total != null ? String(request.quote_total) : ""
+    request.quote_total != null ? String(request.quote_total) : ""
   );
-  const [partsTotalOverridden, setPartsTotalOverridden] = useState(false);
   const [smsVariant, setSmsVariant] = useState(request.advisor_sms_variant || "standard");
   const [smsDraft, setSmsDraft] = useState(request.advisor_sms_draft || "");
 
@@ -103,19 +93,45 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
   const [generating, setGenerating] = useState(false);
   const [showGroups, setShowGroups] = useState(true);
   const [analysisWarning, setAnalysisWarning] = useState(null);
+  const [pdfMismatch, setPdfMismatch] = useState(null);
+  const [scheduleMatch, setScheduleMatch] = useState(null); // 'matched' | 'not-found' | null
 
-  const labourRate = labourRateProp || request.labour_rate_ex_gst || 110;
-  const gstMultiplier = 1 + (Number(request.gst_percent ?? 10) / 100);
+  // Labour is charged inc GST. PartsRequest.labour_rate_ex_gst is a legacy
+  // column name — the value stored there is the inc-GST hourly rate.
+  const labourRate = resolveLabourRate(labourRateProp, request.labour_rate_ex_gst);
+
+  // Match the job card to the imported daily job schedule to fill in the
+  // customer name and vehicle. Never invent them: if no row matches and the
+  // request has no name/vehicle, the draft is flagged incomplete below.
+  useEffect(() => {
+    const jobCard = request.job_card_number;
+    if (!jobCard || customerName.trim() || vehicleType.trim()) {
+      setScheduleMatch(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/job-schedule/match?jobCard=${encodeURIComponent(jobCard)}`)
+      .then(res => res.json().catch(() => ({})))
+      .then(data => {
+        if (cancelled) return;
+        const customer = scheduleRowToCustomer(data.row);
+        if (data.matched && customer?.customerName) {
+          setCustomerName(customer.customerName);
+          if (customer.vehicle) setVehicleType(customer.vehicle);
+          setScheduleMatch('matched');
+        } else {
+          setScheduleMatch('not-found');
+        }
+      })
+      .catch(() => setScheduleMatch(null));
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request.id]);
   const validPartsTotal = getValidPartsTotal(partsTotalIncGst);
   const pricingRequest = {
     ...request,
     quote_total: validPartsTotal ?? request.quote_total
   };
-  const pricingUpdate = validPartsTotal != null ? {
-    quote_total: validPartsTotal,
-    parts_total_inc_gst: validPartsTotal,
-    parts_total_ex_gst: Number((validPartsTotal / gstMultiplier).toFixed(2))
-  } : {};
 
   const updateMutation = useMutation({
     mutationFn: (data) => entities.PartsRequest.update(request.id, data),
@@ -138,8 +154,19 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
   const runAnalysis = async () => {
     setAnalysing(true);
     setAnalysisWarning(null);
+    setPdfMismatch(null);
     const partsText = getPartsText(request.parts);
-    const { groups: initialised, pdfReadable, notesUsed, quoteTotalIncGst, deterministicPricing } = await analyseRepairs(request, partsText);
+    const { groups: initialised, pdfReadable, notesUsed, pdfJobMismatch } = await analyseRepairs(request, partsText);
+
+    if (pdfJobMismatch) {
+      setPdfMismatch(pdfJobMismatch);
+      setAnalysisWarning(`Quote PDF does not match this job — ${pdfJobMismatch.reason} No quote has been built from it. Check the attached PDF.`);
+      setGroups([]);
+      setShowGroups(true);
+      setAnalysing(false);
+      return [];
+    }
+
     const mergedGroups = mergeRelatedRepairGroups(initialised);
     const groupsWithSelectedLabour = applyWorkshopControllerLabour(mergedGroups, request);
 
@@ -148,9 +175,6 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
     }
 
     setGroups(groupsWithSelectedLabour);
-    if (deterministicPricing && quoteTotalIncGst != null && !partsTotalOverridden) {
-      setPartsTotalIncGst(String(quoteTotalIncGst));
-    }
     setShowGroups(true);
     setAnalysing(false);
     return groupsWithSelectedLabour;
@@ -158,37 +182,38 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
 
   // Step 2: Generate SMS from groups with line-by-line repair breakdown
   const buildFallbackSms = (groupsToUse) => {
-    const gst = gstMultiplier;
+    const gst = 1.1;
     const custName = customerName.trim();
     const vehicle = vehicleType.trim();
     const greeting = custName ? `Hi ${custName},` : "Hi there,";
     const vehicleMention = vehicle ? `for your ${vehicle}` : "";
     const lines = groupsToUse.map(g => {
-      const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst,
-        partsTotalOverridden ? validPartsTotal : null);
+      const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst);
       if (!pricing) return `${g.repair_name}: price TBC`;
       return `${g.repair_name}: $${pricing.totalIncGst.toFixed(2)} inc GST`;
     });
-    const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst,
-      partsTotalOverridden ? validPartsTotal : null));
+    const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst));
     const allPricesKnown = groupPrices.length > 0 && groupPrices.every(Boolean);
     const pricedTotal = allPricesKnown
       ? groupPrices.reduce((sum, pricing) => sum + pricing.totalIncGst, 0)
       : null;
     const totalLine = pricedTotal != null ? `Total: $${pricedTotal.toFixed(2)} inc GST` : 'Total: price TBC';
-    return [
+    return toPlainAscii([
       `${greeting}${vehicleMention ? ` ${vehicleMention}` : ''}`,
       'We recommend the following work:',
       ...lines,
       totalLine,
       'Please reply YES to approve or NO to decline. Fleurieu Motor Group Service 08 8552 1255'
-    ].join('\n');
+    ].join('\n'));
   };
 
   // Step 2: Generate SMS from groups with line-by-line repair breakdown
   const generateSms = async (groupsToUse) => {
+    // No groups means the quote could not be analysed (e.g. mismatched PDF)
+    // — the warning banner already explains why.
+    if (!groupsToUse || groupsToUse.length === 0) return;
     setGenerating(true);
-    const gst = gstMultiplier;
+    const gst = 1.1;
     const custName = customerName.trim();
     const vehicle = vehicleType.trim();
     const greeting = custName ? `Hi ${custName},` : "Hi there,";
@@ -196,54 +221,28 @@ export default function SMSDraftGenerator({ request, labourRate: labourRateProp,
 
     // Build per-repair lines for the prompt
     const repairLines = groupsToUse.map(g => {
-      const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst,
-        partsTotalOverridden ? validPartsTotal : null);
+      const pricing = getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst);
       if (!pricing) return `- We recommend ${g.repair_name}: price TBC`;
 
       const partsText = pricing.source === 'parts_ex_gst'
         ? `parts ex GST: $${g.parts_cost_ex_gst.toFixed(2)}`
         : `parts total: $${pricing.partsIncGst.toFixed(2)} inc GST`;
-      return `- We recommend ${g.repair_name}: $${pricing.totalIncGst.toFixed(2)} inc GST (${partsText}, labour ${g.labour_hours}h @ $${labourRate}/hr ex GST)`;
+      return `- We recommend ${g.repair_name}: $${pricing.totalIncGst.toFixed(2)} inc GST (${partsText}, labour ${g.labour_hours}h @ $${labourRate}/hr inc GST)`;
     }).join('\n');
 
-    const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst,
-      partsTotalOverridden ? validPartsTotal : null));
+    const groupPrices = groupsToUse.map(g => getGroupPricing(g, pricingRequest, groupsToUse, labourRate, gst));
     const allPricesKnown = groupPrices.length > 0 && groupPrices.every(Boolean);
     const grandTotalIncGst = allPricesKnown
       ? groupPrices.reduce((sum, pricing) => sum + pricing.totalIncGst, 0).toFixed(2)
       : null;
-    const structuredRepairs = groupsToUse.map((group, index) => {
-      const pricing = groupPrices[index];
-      if (!pricing) return {
-        repairDescription: group.repair_name,
-        partsCostExGst: null,
-        labourHours: group.labour_hours,
-        labourRateExGst: labourRate,
-        labourTotalExGst: group.labour_hours == null ? null : group.labour_hours * labourRate,
-        totalIncGst: null
-      };
-      const labourTotalExGst = group.labour_hours * labourRate;
-      const repairTotalExGst = pricing.partsCostExGst + labourTotalExGst;
-      return {
-        repairDescription: group.repair_name,
-        partsCostExGst: Number(pricing.partsCostExGst.toFixed(2)),
-        partsTotalIncGst: Number(pricing.partsIncGst.toFixed(2)),
-        labourHours: group.labour_hours,
-        labourRateExGst: labourRate,
-        labourTotalExGst: Number(labourTotalExGst.toFixed(2)),
-        repairTotalExGst: Number(repairTotalExGst.toFixed(2)),
-        gst: Number((pricing.totalIncGst - repairTotalExGst).toFixed(2)),
-        totalIncGst: Number(pricing.totalIncGst.toFixed(2))
-      };
-    });
 
     let variantInstructions = "";
     if (smsVariant === "short") {
-      variantInstructions = "Keep it brief — under 160 characters total if possible. Summarise repairs concisely.";
+      variantInstructions = "Keep it brief - under 160 characters total if possible. Summarise repairs concisely.";
     } else if (smsVariant === "detailed") {
       variantInstructions = "Include all repair names with individual prices. Can be up to 320 characters.";
     } else {
-      variantInstructions = "Standard length — list all repairs with individual prices, one per line. Around 200-260 characters.";
+      variantInstructions = "Standard length - list all repairs with individual prices, one per line. Around 200-260 characters.";
     }
 
     const prompt = `Generate an SMS message for an Australian car dealership service advisor to send to a customer requesting approval for repairs.
@@ -266,31 +265,27 @@ STRICT RULES:
 5. MUST end with: "Please reply YES to approve or NO to decline. Fleurieu Motor Group Service 08 8552 1255"
 6. Professional, warm, clear, concise Australian dealership tone
 7. Never invent or estimate missing prices. Output ONLY the SMS text, nothing else
+8. If the notes or quote list two options for the same repair (for example two tyre brands or prices), include BOTH options with their prices so the customer can choose.
+${SMS_ASCII_RULES}
 
 Generate the SMS now:`;
 
     try {
-      const apiResponse = await fetch('/api/ai/generate-workshop-text', {
+      // AI generation runs on the server (the API key lives there) — never
+      // from the browser. Falls back to a local draft if it fails.
+      const apiResponse = await fetch('/api/ai/generate-advisor-sms', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'sms',
-          customerName: custName,
-          vehicle,
-          variant: smsVariant,
-          repairLines,
-          repairs: structuredRepairs,
-          totalIncGst: grandTotalIncGst == null ? null : Number(grandTotalIncGst)
-        })
+        body: JSON.stringify({ prompt })
       });
       if (!apiResponse.ok) throw new Error(`AI SMS generation failed (${apiResponse.status})`);
       const apiData = await apiResponse.json();
-      const generatedSms = apiData.text?.trim() || buildFallbackSms(groupsToUse);
+      const generatedSms = toPlainAscii(apiData.smsText?.trim() || '') || buildFallbackSms(groupsToUse);
       setSmsDraft(generatedSms);
 
       await updateMutation.mutateAsync({
         customer_name: customerName,
         vehicle_type: vehicleType,
-        ...pricingUpdate,
+        ...(validPartsTotal != null ? { quote_total: validPartsTotal } : {}),
         advisor_sms_draft: generatedSms,
         advisor_sms_variant: smsVariant,
         advisor_sms_generated_at: new Date().toISOString()
@@ -304,7 +299,7 @@ Generate the SMS now:`;
       await updateMutation.mutateAsync({
         customer_name: customerName,
         vehicle_type: vehicleType,
-        ...pricingUpdate,
+        ...(validPartsTotal != null ? { quote_total: validPartsTotal } : {}),
         advisor_sms_draft: fallbackSms,
         advisor_sms_variant: smsVariant,
         advisor_sms_generated_at: new Date().toISOString()
@@ -317,6 +312,10 @@ Generate the SMS now:`;
 
   // Main generate handler: analyse if no groups yet, then generate
   const handleGenerate = async () => {
+    if (pdfMismatch) {
+      toast.error("Quote PDF does not match this job — no SMS can be generated from it.");
+      return;
+    }
     try {
       let g = groups;
       if (!g) {
@@ -351,7 +350,7 @@ Generate the SMS now:`;
     await updateMutation.mutateAsync({
       customer_name: customerName,
       vehicle_type: vehicleType,
-      ...pricingUpdate,
+      ...(validPartsTotal != null ? { quote_total: validPartsTotal } : {}),
       advisor_sms_draft: smsDraft
     });
     toast.success("Draft saved");
@@ -401,10 +400,7 @@ Generate the SMS now:`;
               min="0"
               step="0.01"
               value={partsTotalIncGst}
-              onChange={(e) => {
-                setPartsTotalIncGst(e.target.value);
-                setPartsTotalOverridden(true);
-              }}
+              onChange={(e) => setPartsTotalIncGst(e.target.value)}
               placeholder="e.g. 165.00"
               className="mt-1.5"
             />
@@ -429,7 +425,7 @@ Generate the SMS now:`;
           <div className="flex items-end">
             <Button
               onClick={handleGenerate}
-              disabled={isLoading}
+              disabled={isLoading || !!pdfMismatch}
               className="gap-2 bg-purple-600 hover:bg-purple-700"
             >
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -443,6 +439,20 @@ Generate the SMS now:`;
           <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
             <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
             <span>{analysisWarning}</span>
+          </div>
+        )}
+
+        {/* Job schedule match — customer details come from the daily schedule, never invented */}
+        {scheduleMatch === 'matched' && (
+          <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-800">
+            <CheckCircle className="h-4 w-4 shrink-0 mt-0.5 text-emerald-500" />
+            <span>Customer and vehicle matched from today's job schedule.</span>
+          </div>
+        )}
+        {scheduleMatch === 'not-found' && (!customerName.trim() || !vehicleType.trim()) && (
+          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+            <span>Draft incomplete: no job schedule row for job card {request.job_card_number || '(none)'} — customer name and vehicle are not verified. Check before sending.</span>
           </div>
         )}
 
@@ -464,10 +474,10 @@ Generate the SMS now:`;
               <div className="divide-y divide-slate-100">
                 {groups.map((g, i) => {
                   const labourHours = g.labour_hours ?? 0;
-                  const labourExGst = labourHours * labourRate;
-                  const partsIncGst = g.parts_cost_ex_gst != null ? g.parts_cost_ex_gst * gstMultiplier : null;
-                  const pricing = getGroupPricing(g, pricingRequest, groups, labourRate, gstMultiplier,
-                    partsTotalOverridden ? validPartsTotal : null);
+                  // Labour rate is inc GST.
+                  const labourIncGst = labourHours * labourRate;
+                  const partsIncGst = g.parts_cost_ex_gst != null ? g.parts_cost_ex_gst * 1.1 : null;
+                  const pricing = getGroupPricing(g, pricingRequest, groups, labourRate, 1.1);
                   const totalIncGst = pricing?.totalIncGst ?? null;
 
                   return (
@@ -479,6 +489,9 @@ Generate the SMS now:`;
                         )}
                       </div>
                       <p className="text-xs text-slate-500">{g.parts.join(' · ')}</p>
+                      {g.tyre_rule_note && (
+                        <p className="text-xs text-amber-700">{g.tyre_rule_note}</p>
+                      )}
                       <div className="flex items-center gap-3 flex-wrap">
                         <div className="flex items-center gap-2">
                           <Label className="text-xs text-slate-500 whitespace-nowrap">Labour hrs</Label>
@@ -499,7 +512,7 @@ Generate the SMS now:`;
                           {(partsIncGst != null || pricing?.source === 'quote_total') && (
                             <span>Parts: ${(partsIncGst ?? pricing.partsIncGst).toFixed(2)}</span>
                           )}
-                          {labourExGst != null && <span>Labour: ${(labourExGst * 1.1).toFixed(2)}</span>}
+                          {labourIncGst != null && <span>Labour: ${labourIncGst.toFixed(2)}</span>}
                         </div>
                       </div>
                     </div>
