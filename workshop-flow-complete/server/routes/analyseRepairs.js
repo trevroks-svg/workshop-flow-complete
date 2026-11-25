@@ -1,0 +1,246 @@
+import OpenAI from 'openai';
+import { parseQuoteText } from '../lib/quoteParser.js';
+import { checkPdfMatchesJob } from '../lib/pdfJobMatch.js';
+import { applyTyreSetOfFourRule, TYRE_REPLACEMENT_TREAD_MM } from '../lib/tyreRule.js';
+
+const repairAnalysisSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['pdf_was_readable', 'notes_used_for_pricing', 'line_items', 'groups', 'quote_total_inc_gst'],
+  properties: {
+    pdf_was_readable: { type: 'boolean' },
+    notes_used_for_pricing: { type: 'boolean' },
+    quote_total_inc_gst: { type: ['number', 'null'] },
+    line_items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'description',
+          'part_number',
+          'quantity',
+          'unit_price_ex_gst',
+          'gst',
+          'line_total_inc_gst',
+        ],
+        properties: {
+          description: { type: 'string' },
+          part_number: { type: ['string', 'null'] },
+          quantity: { type: ['number', 'null'] },
+          unit_price_ex_gst: { type: ['number', 'null'] },
+          gst: { type: ['number', 'null'] },
+          line_total_inc_gst: { type: ['number', 'null'] },
+        },
+      },
+    },
+    groups: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['repair_name', 'parts', 'parts_cost_ex_gst', 'estimated_labour_hours'],
+        properties: {
+          repair_name: { type: 'string' },
+          parts: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+          parts_cost_ex_gst: { type: ['number', 'null'] },
+          estimated_labour_hours: { type: ['number', 'null'] },
+        },
+      },
+    },
+  },
+};
+
+function buildDataContext(request, partsText) {
+  const pdfText = (request?.quote_pdf_text || '').trim();
+  const notes = (request?.parts_interpreter_notes || '').trim();
+
+  let context = '';
+
+  if (pdfText) {
+    context += 'PDF QUOTE TEXT:\n';
+    context += `${pdfText}\n`;
+  }
+
+  if (notes) {
+    context += '\nPARTS INTERPRETER NOTES:\n';
+    context += `${notes}\n`;
+  }
+
+  if (partsText) {
+    context += '\nTECHNICIAN PARTS LIST:\n';
+    context += `${partsText}\n`;
+  }
+
+  return context.trim();
+}
+
+function buildPrompt(request, partsText) {
+  const context = buildDataContext(request, partsText);
+  const jobCard = request?.job_card_number || 'not supplied';
+  const vehicle = request?.vehicle_type || 'not specified';
+  const requestedParts = (request?.parts || [])
+    .map(part => part.part_type || '')
+    .filter(Boolean)
+    .join(', ') || 'not specified';
+
+  return `You are an experienced Australian automotive workshop service advisor assistant.
+
+Extract parts quote data from the provided text, then group related line items into customer-facing repair jobs.
+
+JOB CARD: ${jobCard}
+VEHICLE: ${vehicle}
+REQUESTED PARTS: ${requestedParts}
+
+DATA:
+${context || '(no quote text, notes, or parts list provided)'}
+
+Rules:
+- Use the PDF quote text as the primary pricing source when present.
+- Check the quote belongs to this job: if the PDF text shows a different job card number, or parts for a different repair than the requested parts, do not use it for pricing — set quote_total_inc_gst to null.
+- Tyres: if any road tyre tread is at or below ${TYRE_REPLACEMENT_TREAD_MM}mm, recommend replacement as a set of four tyres, never just the worn ones.
+- If PDF text is missing or has no explicit prices, use Parts Interpreter notes for pricing.
+- Never invent or estimate a parts price.
+- If a part line gives unit price ex GST and GST, preserve those values.
+- parts_cost_ex_gst must be the sum of explicit parts prices excluding GST for that repair group.
+- line_total_inc_gst must be the line total including GST when explicitly found.
+- quote_total_inc_gst must be the quote total including GST when explicitly found.
+- If a price is missing, use null.
+- If a line has $0.00, use null for that price unless the text clearly says it is free.
+- Labour hours are allowed to be estimated in 0.25 hour increments and are editable later.
+- Air filter alone should be grouped as "Air Filter".
+- Return structured data only.`;
+}
+
+function parseOutput(response) {
+  const text = response.output_text || '';
+  if (!text) return null;
+  return JSON.parse(text);
+}
+
+async function hydrateRequestFromDatabase(request) {
+  if (!request?.id || !process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return request;
+  }
+
+  try {
+    const { supabaseAdmin } = await import('../supabaseAdmin.js');
+    const { data, error } = await supabaseAdmin
+      .from('parts_requests')
+      .select('*')
+      .eq('id', request.id)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? { ...request, ...data } : request;
+  } catch (error) {
+    console.warn('Could not hydrate request before repair analysis:', error);
+    return request;
+  }
+}
+
+export default async function analyseRepairs(req, res) {
+  try {
+    const { request, partsText = '' } = req.body || {};
+    if (!request || typeof request !== 'object') {
+      return res.status(400).json({ success: false, error: 'request is required' });
+    }
+
+    const requestForAnalysis = await hydrateRequestFromDatabase(request);
+
+    const rulesAnalysis = parseQuoteText(requestForAnalysis.quote_pdf_text);
+    if (rulesAnalysis.success) {
+      // A mismatched quote PDF must never be used to build a quote — a real
+      // trial caught a battery quote attached to a tyres job.
+      const pdfJobMatch = checkPdfMatchesJob(
+        requestForAnalysis,
+        requestForAnalysis.quote_pdf_text,
+        rulesAnalysis.result.line_items
+      );
+      if (pdfJobMatch.status === 'mismatch') {
+        return res.json({
+          success: false,
+          source: 'rules',
+          confidence: rulesAnalysis.confidence,
+          error: `Quote PDF does not match this job: ${pdfJobMatch.reason}`,
+          pdf_job_match: pdfJobMatch,
+        });
+      }
+
+      return res.json({
+        success: true,
+        source: 'rules',
+        confidence: rulesAnalysis.confidence,
+        pdf_job_match: pdfJobMatch,
+        result: {
+          ...rulesAnalysis.result,
+          groups: applyTyreSetOfFourRule(
+            rulesAnalysis.result.groups,
+            rulesAnalysis.result.line_items,
+            requestForAnalysis
+          ),
+        },
+      });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ success: false, error: 'OPENAI_API_KEY is not configured' });
+    }
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    const response = await openai.responses.create({
+      model: process.env.OPENAI_ANALYSE_REPAIRS_MODEL || 'gpt-5.4-nano',
+      input: buildPrompt(requestForAnalysis, partsText),
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'repair_quote_analysis',
+          strict: true,
+          schema: repairAnalysisSchema,
+        },
+      },
+    });
+
+    const result = parseOutput(response);
+    if (!result) {
+      return res.status(502).json({ success: false, error: 'OpenAI returned no structured analysis' });
+    }
+
+    // Same guards as the rules path: never build a quote from a PDF that
+    // belongs to another job, and price worn tyres as a set of four.
+    const pdfJobMatch = checkPdfMatchesJob(
+      requestForAnalysis,
+      requestForAnalysis.quote_pdf_text,
+      result.line_items || []
+    );
+    if (pdfJobMatch.status === 'mismatch') {
+      return res.json({
+        success: false,
+        source: 'openai',
+        confidence: null,
+        error: `Quote PDF does not match this job: ${pdfJobMatch.reason}`,
+        pdf_job_match: pdfJobMatch,
+      });
+    }
+
+    return res.json({
+      success: true,
+      source: 'openai',
+      confidence: null,
+      pdf_job_match: pdfJobMatch,
+      result: {
+        ...result,
+        groups: applyTyreSetOfFourRule(result.groups || [], result.line_items || [], requestForAnalysis),
+      },
+    });
+  } catch (err) {
+    console.error('analyseRepairs route error:', err);
+    return res.status(500).json({ success: false, error: err.message || 'AI repair analysis failed' });
+  }
+}
