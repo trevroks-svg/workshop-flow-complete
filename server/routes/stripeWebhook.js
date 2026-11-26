@@ -9,10 +9,17 @@
 import Stripe from 'stripe';
 import { supabaseAdmin } from '../supabaseAdmin.js';
 
-const stripe        = new Stripe(process.env.STRIPE_SECRET_KEY);
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 export default async function stripeWebhook(req, res) {
+  // Stripe is optional: the server must start without a payments key.
+  // The client is built here, per request, so importing this module
+  // never throws when STRIPE_SECRET_KEY is unset.
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return res.status(500).json({ error: 'STRIPE_SECRET_KEY is not configured' });
+  }
+
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   const signature = req.headers['stripe-signature'];
 
   let event;

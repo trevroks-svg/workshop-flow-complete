@@ -8,13 +8,19 @@
 
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
 // Your existing Stripe price ID — keep this unchanged from your base44 setup
 const PRICE_ID = 'price_1TYKdLLocSByw6jHjE6uev7T';
 
 export default async function createCheckoutSession(req, res) {
+  // Stripe is optional: the server must start without a payments key.
+  // The client is built here, per request, so importing this module
+  // never throws when STRIPE_SECRET_KEY is unset.
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return res.status(500).json({ error: 'STRIPE_SECRET_KEY is not configured' });
+  }
+
   try {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const { business_name, email, business_id } = req.body;
 
     const session = await stripe.checkout.sessions.create({
